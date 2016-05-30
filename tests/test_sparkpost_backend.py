@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from datetime import datetime, date
 from email.mime.base import MIMEBase
 from email.mime.image import MIMEImage
