@@ -10,10 +10,14 @@ It's easiest to install Anymail from PyPI using pip.
 
     .. code-block:: console
 
-        $ pip install django-anymail
+        $ pip install django-anymail[sendgrid,sparkpost]
 
-If you don't want to use pip, you'll also need to install Anymail's
-dependencies (requests and six).
+The `[sendgrid,sparkpost]` part of that command tells pip you also
+want to install additional packages required for those ESPs.
+You can give one or more comma-separated, lowercase ESP names.
+(Most ESPs don't have additional requirements, so you can often
+just skip this. Or change your mind later. Anymail will let you know
+if there are any missing dependencies when you try to use it.)
 
 
 .. _backend-configuration:

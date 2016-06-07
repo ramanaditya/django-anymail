@@ -1,5 +1,5 @@
-Anymail: Django email backends for Mailgun, Postmark, SendGrid and more
-=======================================================================
+Anymail: Django email backends for Mailgun, Postmark, SendGrid, SparkPost and more
+==================================================================================
 
  **EARLY DEVELOPMENT**
 
@@ -30,7 +30,7 @@ Anymail integrates several transactional email service providers (ESPs) into Dja
 with a consistent API that lets you use ESP-added features without locking your code
 to a particular ESP.
 
-It currently fully supports Mailgun, Postmark, and SendGrid,
+It currently fully supports Mailgun, Postmark, SendGrid, and SparkPost,
 and has limited support for Mandrill.
 
 Anymail normalizes ESP functionality so it "just works" with Django's
@@ -78,13 +78,16 @@ Anymail 1-2-3
 .. This quickstart section is also included in docs/quickstart.rst
 
 This example uses Mailgun, but you can substitute Postmark or SendGrid
-or any other supported ESP where you see "mailgun":
+or SparkPost or any other supported ESP where you see "mailgun":
 
 1. Install Anymail from PyPI:
 
    .. code-block:: console
 
-        $ pip install django-anymail
+        $ pip install django-anymail[mailgun]
+
+   (The `[mailgun]` part installs any additional packages needed for that ESP.
+   Mailgun doesn't have any, but some other ESPs do.)
 
 
 2. Edit your project's ``settings.py``:
