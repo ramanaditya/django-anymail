@@ -12,7 +12,7 @@ from .base_requests import AnymailRequestsBackend, RequestsPayload
 
 class SendGridBackend(AnymailRequestsBackend):
     """
-    SendGrid API Email Backend
+    SendGrid v2 API Email Backend (deprecated)
     """
 
     def __init__(self, **kwargs):
@@ -36,7 +36,7 @@ class SendGridBackend(AnymailRequestsBackend):
         self.merge_field_format = get_anymail_setting('merge_field_format', esp_name=esp_name,
                                                       kwargs=kwargs, default=None)
 
-        # This is SendGrid's Web API v2 (because the Web API v3 doesn't support sending)
+        # This is SendGrid's older Web API v2
         api_url = get_anymail_setting('api_url', esp_name=esp_name, kwargs=kwargs,
                                       default="https://api.sendgrid.com/api/")
         if not api_url.endswith("/"):

@@ -81,12 +81,12 @@ class BackendSettingsTests(SimpleTestCase, AnymailTestMixin):          # (so not
     def test_username_password_kwargs_overrides(self):
         """Overrides for 'username' and 'password' should work like other overrides"""
         # These are special-cased because of default args in Django core mail functions.
-        # (Use the SendGrid backend, which has settings named 'username' and 'password'.)
-        backend = get_connection('anymail.backends.sendgrid.SendGridBackend')
+        # (Use the SendGrid v2 backend, which has settings named 'username' and 'password'.)
+        backend = get_connection('anymail.backends.sendgrid_v2.SendGridBackend')
         self.assertEqual(backend.username, 'username_from_settings')
         self.assertEqual(backend.password, 'password_from_settings')
 
-        backend = get_connection('anymail.backends.sendgrid.SendGridBackend',
+        backend = get_connection('anymail.backends.sendgrid_v2.SendGridBackend',
                                  username='username_from_kwargs', password='password_from_kwargs')
         self.assertEqual(backend.username, 'username_from_kwargs')
         self.assertEqual(backend.password, 'password_from_kwargs')

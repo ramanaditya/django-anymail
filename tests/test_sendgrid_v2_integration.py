@@ -24,15 +24,15 @@ SENDGRID_TEST_PASSWORD = os.getenv('SENDGRID_TEST_PASSWORD')
                      "Set SENDGRID_TEST_API_KEY environment variable "
                      "to run SendGrid integration tests")
 @override_settings(ANYMAIL_SENDGRID_API_KEY=SENDGRID_TEST_API_KEY,
-                   EMAIL_BACKEND="anymail.backends.sendgrid.SendGridBackend")
+                   EMAIL_BACKEND="anymail.backends.sendgrid_v2.SendGridBackend")
 class SendGridBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
-    """SendGrid API integration tests
+    """SendGrid v2 API integration tests
 
     These tests run against the **live** SendGrid API, using the
     environment variable `SENDGRID_TEST_API_KEY` as the API key
     If those variables are not set, these tests won't run.
 
-    SendGrid doesn't offer a test mode -- it tries to send everything
+    SendGrid v2 doesn't offer a test mode -- it tries to send everything
     you ask. To avoid stacking up a pile of undeliverable @example.com
     emails, the tests use SendGrid's "sink domain" @sink.sendgrid.net.
     https://support.sendgrid.com/hc/en-us/articles/201995663-Safely-Test-Your-Sending-Speed
@@ -123,7 +123,7 @@ class SendGridBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
                      "environment variables to run SendGrid integration tests")
 @override_settings(ANYMAIL_SENDGRID_USERNAME=SENDGRID_TEST_USERNAME,
                    ANYMAIL_SENDGRID_PASSWORD=SENDGRID_TEST_PASSWORD,
-                   EMAIL_BACKEND="anymail.backends.sendgrid.SendGridBackend")
+                   EMAIL_BACKEND="anymail.backends.sendgrid_v2.SendGridBackend")
 class SendGridBackendUserPassIntegrationTests(SimpleTestCase, AnymailTestMixin):
     """SendGrid username/password API integration tests
 
