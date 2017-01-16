@@ -1,5 +1,6 @@
 import mimetypes
 from base64 import b64encode
+from collections import Mapping, MutableMapping
 from datetime import datetime
 from email.mime.base import MIMEBase
 from email.utils import formatdate, getaddresses, unquote
@@ -93,6 +94,20 @@ def getfirst(dct, keys, default=UNSET):
         raise KeyError("None of %s found in dict" % ', '.join(keys))
     else:
         return default
+
+
+def update_deep(dct, other):
+    """Merge (recursively) keys and values from dict other into dict dct
+
+    Works with dict-like objects: dct (and descendants) can be any MutableMapping,
+    and other can be any Mapping
+    """
+    for key, value in other.items():
+        if key in dct and isinstance(dct[key], MutableMapping) and isinstance(value, Mapping):
+            update_deep(dct[key], value)
+        else:
+            dct[key] = value
+    # (like dict.update(), no return value)
 
 
 def parse_one_addr(address):

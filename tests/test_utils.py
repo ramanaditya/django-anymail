@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 from django.utils.translation import ugettext_lazy, string_concat
 
 from anymail.exceptions import AnymailInvalidAddress
-from anymail.utils import ParsedEmail, is_lazy, force_non_lazy, force_non_lazy_dict, force_non_lazy_list
+from anymail.utils import ParsedEmail, is_lazy, force_non_lazy, force_non_lazy_dict, force_non_lazy_list, update_deep
 
 
 class ParsedEmailTests(SimpleTestCase):
@@ -116,3 +116,29 @@ class LazyCoercionTests(SimpleTestCase):
         result = force_non_lazy_list([0, ugettext_lazy(u"b"), u"c"])
         self.assertEqual(result, [0, u"b", u"c"])  # coerced to list
         self.assertIsInstance(result[1], six.text_type)
+
+
+class UpdateDeepTests(SimpleTestCase):
+    """Test utils.update_deep"""
+
+    def test_updates_recursively(self):
+        first = {'a': {'a1': 1, 'aa': {}}, 'b': "B"}
+        second = {'a': {'a2': 2, 'aa': {'aa1': 11}}}
+        result = update_deep(first, second)
+        self.assertEqual(first, {'a': {'a1': 1, 'a2': 2, 'aa': {'aa1': 11}}, 'b': "B"})
+        self.assertIsNone(result)  # modifies first in place; doesn't return it (same as dict.update())
+
+    def test_overwrites_sequences(self):
+        """Only mappings are handled recursively; sequences are considered atomic"""
+        first = {'a': [1, 2]}
+        second = {'a': [3]}
+        update_deep(first, second)
+        self.assertEqual(first, {'a': [3]})
+
+    def test_handles_non_dict_mappings(self):
+        """Mapping types in general are supported"""
+        from collections import OrderedDict, defaultdict
+        first = OrderedDict(a=OrderedDict(a1=1), c={'c1': 1})
+        second = defaultdict(None, a=dict(a2=2))
+        update_deep(first, second)
+        self.assertEqual(first, {'a': {'a1': 1, 'a2': 2}, 'c': {'c1': 1}})
