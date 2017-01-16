@@ -3,12 +3,19 @@
 SendGrid
 ========
 
-Anymail integrates with the `SendGrid`_ email service,
-using their `Web API v2`_. (Their v3 API does not support sending mail,
-but the v3 API calls *do* get information about mail sent through v2.)
+.. warning::
+
+    Anymail's default SendGrid backend (on this feature branch) now uses SendGrid's v3 API.
+    These docs *have not been updated yet,* and may contain some incorrect information.
+
+    The old API is still available as `"anymail.backends.sendgrid_v2.SendGridBackend"`.
+    You must use the old API if you need username/password auth, or if your code contains
+    `esp_extra` settings that reference v2's `"x-smtpapi"` features.
+
+Anymail integrates with the `SendGrid`_ email service, using their `Web API v3`_.
 
 .. _SendGrid: https://sendgrid.com/
-.. _Web API v2: https://sendgrid.com/docs/API_Reference/Web_API/mail.html
+.. _Web API v3: https://sendgrid.com/docs/API_Reference/Web_API_v3/Mail/index.html
 
 
 Settings

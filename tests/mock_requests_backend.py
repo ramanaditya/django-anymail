@@ -17,6 +17,7 @@ class RequestsBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
     """TestCase that mocks API calls through requests"""
 
     DEFAULT_RAW_RESPONSE = b"""{"subclass": "should override"}"""
+    DEFAULT_STATUS_CODE = 200  # most APIs use '200 OK' for success
 
     class MockResponse(requests.Response):
         """requests.request return value mock sufficient for testing"""
@@ -33,7 +34,7 @@ class RequestsBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
         self.addCleanup(self.patch_request.stop)
         self.set_mock_response()
 
-    def set_mock_response(self, status_code=200, raw=UNSET, encoding='utf-8'):
+    def set_mock_response(self, status_code=DEFAULT_STATUS_CODE, raw=UNSET, encoding='utf-8'):
         if raw is UNSET:
             raw = self.DEFAULT_RAW_RESPONSE
         mock_response = self.MockResponse(status_code, raw, encoding)
