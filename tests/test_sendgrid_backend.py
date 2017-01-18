@@ -42,6 +42,7 @@ class SendGridBackendStandardEmailTests(SendGridBackendMockAPITestCase):
         self.assert_esp_called('https://api.sendgrid.com/v3/mail/send')
         http_headers = self.get_api_call_headers()
         self.assertEqual(http_headers["Authorization"], "Bearer test_api_key")
+        self.assertEqual(http_headers["Content-Type"], "application/json")
 
         data = self.get_api_call_json()
         self.assertEqual(data['subject'], "Subject here")
@@ -148,7 +149,7 @@ class SendGridBackendStandardEmailTests(SendGridBackendMockAPITestCase):
         self.message.send()
         data = self.get_api_call_json()
         self.assertEqual(data['headers']['X-Custom'], 'string')
-        self.assertEqual(data['headers']['X-Num'], 123)  # (v2 required string conversion; v3 isn't doc'ed to)
+        self.assertEqual(data['headers']['X-Num'], '123')  # converted to string (undoc'd SendGrid requirement)
         # Reply-To must be moved to separate param
         self.assertNotIn('Reply-To', data['headers'])
         self.assertEqual(data['reply_to'], {'name': "Do Not Reply", 'email': "noreply@example.com"})
@@ -322,12 +323,12 @@ class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
     """Test backend support for Anymail added features"""
 
     def test_metadata(self):
-        # Note: SendGrid allows only strings in metadata
-        self.message.metadata = {'user_id': "12345", 'items': "6"}
+        self.message.metadata = {'user_id': "12345", 'items': 6}
         self.message.send()
         data = self.get_api_call_json()
         data['custom_args'].pop('smtp-id', None)  # remove Message-ID we added as tracking workaround
-        self.assertEqual(data['custom_args'], {'user_id': "12345", 'items': "6"})
+        self.assertEqual(data['custom_args'], {'user_id': "12345",
+                                               'items': "6"})  # number converted to string
 
     def test_send_at(self):
         utc_plus_6 = get_fixed_timezone(6 * 60)

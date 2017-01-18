@@ -77,6 +77,8 @@ class SendGridPayload(RequestsPayload):
 
         http_headers = kwargs.pop('headers', {})
         http_headers['Authorization'] = 'Bearer %s' % backend.api_key
+        http_headers['Content-Type'] = 'application/json'
+        http_headers['Accept'] = 'application/json'
         super(SendGridPayload, self).__init__(message, defaults, backend,
                                               headers=http_headers,
                                               *args, **kwargs)
@@ -220,8 +222,12 @@ class SendGridPayload(RequestsPayload):
             self.data["reply_to"] = self.email_object(emails[0])
 
     def set_extra_headers(self, headers):
-        # Moved into data['headers'] before sending
-        self.data["headers"].update(headers)
+        # SendGrid requires header values to be strings -- not integers.
+        # We'll stringify ints and floats; anything else is the caller's responsibility.
+        self.data["headers"].update({
+            k: str(v) if isinstance(v, (int, float)) else v
+            for k, v in headers.items()
+        })
 
     def set_text_body(self, body):
         self.data.setdefault("content", []).append({
@@ -257,7 +263,14 @@ class SendGridPayload(RequestsPayload):
         self.data.setdefault("attachments", []).append(att)
 
     def set_metadata(self, metadata):
-        self.data["custom_args"] = metadata
+        # SendGrid requires custom_args values to be strings -- not integers.
+        # (And issues the cryptic error {"field": null, "message": "Bad Request", "help": null}
+        # if they're not.)
+        # We'll stringify ints and floats; anything else is the caller's responsibility.
+        self.data["custom_args"] = {
+            k: str(v) if isinstance(v, (int, float)) else v
+            for k, v in metadata.items()
+        }
 
     def set_send_at(self, send_at):
         # Backend has converted pretty much everything to
