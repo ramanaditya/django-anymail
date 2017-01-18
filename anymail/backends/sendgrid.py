@@ -1,3 +1,4 @@
+from email.utils import quote as rfc822_quote
 import warnings
 
 from django.core.mail import make_msgid
@@ -33,6 +34,13 @@ class SendGridBackend(AnymailRequestsBackend):
         self.merge_field_format = get_anymail_setting('merge_field_format', esp_name=esp_name,
                                                       kwargs=kwargs, default=None)
 
+        # Undocumented setting to disable workaround for SendGrid display-name quoting bug (see below).
+        # If/when SendGrid fixes their API, recipient names will end up with extra double quotes
+        # until Anymail is updated to remove the workaround. In the meantime, you can disable it
+        # by adding `"SENDGRID_WORKAROUND_NAME_QUOTE_BUG": False` to your `ANYMAIL` settings.
+        self.workaround_name_quote_bug = get_anymail_setting('workaround_name_quote_bug', esp_name=esp_name,
+                                                             kwargs=kwargs, default=True)
+
         # This is SendGrid's newer Web API v3
         api_url = get_anymail_setting('api_url', esp_name=esp_name, kwargs=kwargs,
                                       default="https://api.sendgrid.com/v3/")
@@ -61,6 +69,7 @@ class SendGridPayload(RequestsPayload):
     def __init__(self, message, defaults, backend, *args, **kwargs):
         self.all_recipients = []  # used for backend.parse_recipient_status
         self.generate_message_id = backend.generate_message_id
+        self.workaround_name_quote_bug = backend.workaround_name_quote_bug
         self.message_id = None  # Message-ID -- assigned in serialize_data unless provided in headers
         self.merge_field_format = backend.merge_field_format
         self.merge_data = None  # late-bound per-recipient data
@@ -173,26 +182,31 @@ class SendGridPayload(RequestsPayload):
     #
 
     @staticmethod
-    def email_object(email):
+    def email_object(email, workaround_name_quote_bug=False):
         """Converts ParsedEmail to SendGrid API {email, name} dict"""
         obj = {"email": email.email}
         if email.name:
-            obj["name"] = email.name
+            # Work around SendGrid API bug: v3 fails to properly quote display-names
+            # containing commas or semicolons in personalizations (but not in from_email
+            # or reply_to). See https://github.com/sendgrid/sendgrid-python/issues/291.
+            # We can work around the problem by quoting the name for SendGrid.
+            if workaround_name_quote_bug:
+                obj["name"] = '"%s"' % rfc822_quote(email.name)
+            else:
+                obj["name"] = email.name
         return obj
 
     def set_from_email(self, email):
         self.data["from"] = self.email_object(email)
 
-    def set_to(self, emails):
-        self.set_recipients("to", emails)
-
     def set_recipients(self, recipient_type, emails):
         assert recipient_type in ["to", "cc", "bcc"]
         if emails:
+            workaround_name_quote_bug = self.workaround_name_quote_bug
             # Normally, exactly one "personalizations" entry for all recipients
             # (Exception: with merge_data; will be burst apart later.)
             self.data["personalizations"][0][recipient_type] = \
-                [self.email_object(email) for email in emails]
+                [self.email_object(email, workaround_name_quote_bug) for email in emails]
             self.all_recipients += emails  # used for backend.parse_recipient_status
 
     def set_subject(self, subject):

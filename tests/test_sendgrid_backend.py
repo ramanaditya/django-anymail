@@ -70,17 +70,18 @@ class SendGridBackendStandardEmailTests(SendGridBackendMockAPITestCase):
         self.assertEqual(data['from'], {'email': "from@example.com", 'name': "From Name"})
 
         # single message (single "personalization") sent to all those recipients
+        # (note workaround for SendGrid v3 API bug quoting display-name in personalizations)
         self.assertEqual(len(data['personalizations']), 1)
         self.assertEqual(data['personalizations'][0]['to'], [
-            {'name': 'Recipient #1', 'email': 'to1@example.com'},
+            {'name': '"Recipient #1"', 'email': 'to1@example.com'},
             {'email': 'to2@example.com'}
         ])
         self.assertEqual(data['personalizations'][0]['cc'], [
-            {'name': 'Carbon Copy', 'email': 'cc1@example.com'},
+            {'name': '"Carbon Copy"', 'email': 'cc1@example.com'},
             {'email': 'cc2@example.com'}
         ])
         self.assertEqual(data['personalizations'][0]['bcc'], [
-            {'name': 'Blind Copy', 'email': 'bcc1@example.com'},
+            {'name': '"Blind Copy"', 'email': 'bcc1@example.com'},
             {'email': 'bcc2@example.com'}
         ])
 
@@ -97,11 +98,11 @@ class SendGridBackendStandardEmailTests(SendGridBackendMockAPITestCase):
         data = self.get_api_call_json()
         self.assertEqual(data['personalizations'], [{
                 'to': [{'email': "to1@example.com"},
-                       {'email': "to2@example.com", 'name': "Also To"}],
+                       {'email': "to2@example.com", 'name': '"Also To"'}],
                 'cc': [{'email': "cc1@example.com"},
-                       {'email': "cc2@example.com", 'name': "Also CC"}],
+                       {'email': "cc2@example.com", 'name': '"Also CC"'}],
                 'bcc': [{'email': "bcc1@example.com"},
-                        {'email': "bcc2@example.com", 'name': "Also BCC"}],
+                        {'email': "bcc2@example.com", 'name': '"Also BCC"'}],
             }])
 
         self.assertEqual(data['from'], {'email': "from@example.com"})
@@ -427,7 +428,7 @@ class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
             {'to': [{'email': 'alice@example.com'}],
              'cc': [{'email': 'cc@example.com'}],  # all recipients get the cc
              'substitutions': {':name': "Alice", ':group': "Developers"}},
-            {'to': [{'email': 'bob@example.com', 'name': "Bob"}],
+            {'to': [{'email': 'bob@example.com', 'name': '"Bob"'}],
              'cc': [{'email': 'cc@example.com'}],
              'substitutions': {':name': "Bob"}},
             {'to': [{'email': 'celia@example.com'}],
@@ -452,7 +453,7 @@ class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
         self.assertEqual(data['personalizations'], [
             {'to': [{'email': 'alice@example.com'}],
              'substitutions': {':name': "Alice", ':group': "Developers"}},  # keys changed to :field
-            {'to': [{'email': 'bob@example.com', 'name': "Bob"}],
+            {'to': [{'email': 'bob@example.com', 'name': '"Bob"'}],
              'substitutions': {':name': "Bob"}}
         ])
         self.assertEqual(data['sections'], {':site': "ExampleCo"})
@@ -471,7 +472,7 @@ class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
         self.assertEqual(data['personalizations'], [
             {'to': [{'email': 'alice@example.com'}],
              'substitutions': {'*|name|*': "Alice", '*|group|*': "Developers"}},
-            {'to': [{'email': 'bob@example.com', 'name': "Bob"}],
+            {'to': [{'email': 'bob@example.com', 'name': '"Bob"'}],
              'substitutions': {'*|name|*': "Bob"}}
         ])
         self.assertEqual(data['sections'], {'*|site|*': "ExampleCo"})
@@ -581,6 +582,16 @@ class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
         self.assertIsInstance(err, TypeError)  # compatibility with json.dumps
         self.assertIn("Don't know how to send this data to SendGrid", str(err))  # our added context
         self.assertIn("Decimal('19.99') is not JSON serializable", str(err))  # original message
+
+    @override_settings(ANYMAIL_SENDGRID_WORKAROUND_NAME_QUOTE_BUG=False)
+    def test_undocumented_workaround_name_quote_bug_setting(self):
+        mail.send_mail("Subject", "Body", '"Sender, Inc." <from@example.com',
+                       ['"Recipient, Ltd." <to@example.com>'])
+        data = self.get_api_call_json()
+        self.assertEqual(data["personalizations"][0]["to"][0],
+            {"email": "to@example.com", "name": "Recipient, Ltd."})  # no extra quotes on name
+        self.assertEqual(data["from"],
+            {"email": "from@example.com", "name": "Sender, Inc."})
 
 
 class SendGridBackendRecipientsRefusedTests(SendGridBackendMockAPITestCase):
