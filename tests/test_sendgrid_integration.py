@@ -24,7 +24,7 @@ SENDGRID_TEST_TEMPLATE_ID = os.getenv('SENDGRID_TEST_TEMPLATE_ID')
                    }},
                    EMAIL_BACKEND="anymail.backends.sendgrid.SendGridBackend")
 class SendGridBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
-    """SendGrid v2 API integration tests
+    """SendGrid v3 API integration tests
 
     These tests run against the **live** SendGrid API, using the
     environment variable `SENDGRID_TEST_API_KEY` as the API key
