@@ -396,8 +396,7 @@ class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
         #   you do not need to specify those in the respective personalizations or message
         #   level parameters."
         # So make sure we aren't adding body content where not needed:
-        message = mail.EmailMessage(from_email='from@example.com', to=['to@example.com'],
-                                    body=None, subject=None)
+        message = mail.EmailMessage(from_email='from@example.com', to=['to@example.com'])
         message.template_id = "5997fcf6-2b9f-484d-acd5-7e9a99f0dc1f"
         message.send()
         data = self.get_api_call_json()
@@ -428,15 +427,17 @@ class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
         self.assertEqual(data['personalizations'], [
             {'to': [{'email': 'alice@example.com'}],
              'cc': [{'email': 'cc@example.com'}],  # all recipients get the cc
-             'substitutions': {':name': "Alice", ':group': "Developers"}},
+             'substitutions': {':name': "Alice", ':group': "Developers",
+                               ':site': ":site"}},  # tell SG to look for global field in 'sections'
             {'to': [{'email': 'bob@example.com', 'name': '"Bob"'}],
              'cc': [{'email': 'cc@example.com'}],
-             'substitutions': {':name': "Bob"}},
+             'substitutions': {':name': "Bob", ':group': ":group", ':site': ":site"}},
             {'to': [{'email': 'celia@example.com'}],
-             'cc': [{'email': 'cc@example.com'}]},
+             'cc': [{'email': 'cc@example.com'}],
+             'substitutions': {':group': ":group", ':site': ":site"}},  # look for global fields in 'sections'
         ])
         self.assertEqual(data['sections'], {
-            ':group': "Users",  # ... which SG should then try to resolve from here
+            ':group': "Users",
             ':site': "ExampleCo",
         })
 
@@ -453,9 +454,9 @@ class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
         data = self.get_api_call_json()
         self.assertEqual(data['personalizations'], [
             {'to': [{'email': 'alice@example.com'}],
-             'substitutions': {':name': "Alice", ':group': "Developers"}},  # keys changed to :field
+             'substitutions': {':name': "Alice", ':group': "Developers", ':site': ":site"}},  # keys changed to :field
             {'to': [{'email': 'bob@example.com', 'name': '"Bob"'}],
-             'substitutions': {':name': "Bob"}}
+             'substitutions': {':name': "Bob", ':site': ":site"}}
         ])
         self.assertEqual(data['sections'], {':site': "ExampleCo"})
 
@@ -472,9 +473,9 @@ class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
         data = self.get_api_call_json()
         self.assertEqual(data['personalizations'], [
             {'to': [{'email': 'alice@example.com'}],
-             'substitutions': {'*|name|*': "Alice", '*|group|*': "Developers"}},
+             'substitutions': {'*|name|*': "Alice", '*|group|*': "Developers", '*|site|*': "*|site|*"}},
             {'to': [{'email': 'bob@example.com', 'name': '"Bob"'}],
-             'substitutions': {'*|name|*': "Bob"}}
+             'substitutions': {'*|name|*': "Bob", '*|site|*': "*|site|*"}}
         ])
         self.assertEqual(data['sections'], {'*|site|*': "ExampleCo"})
         # Make sure our esp_extra merge_field_format doesn't get sent to SendGrid API:

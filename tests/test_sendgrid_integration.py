@@ -11,6 +11,7 @@ from anymail.message import AnymailMessage
 from .utils import AnymailTestMixin, sample_image_path, RUN_LIVE_TESTS
 
 SENDGRID_TEST_API_KEY = os.getenv('SENDGRID_TEST_API_KEY')
+SENDGRID_TEST_TEMPLATE_ID = os.getenv('SENDGRID_TEST_TEMPLATE_ID')
 
 
 @unittest.skipUnless(RUN_LIVE_TESTS, "RUN_LIVE_TESTS disabled in this environment")
@@ -60,7 +61,7 @@ class SendGridBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
     def test_all_options(self):
         send_at = datetime.now().replace(microsecond=0) + timedelta(minutes=2)
         message = AnymailMessage(
-            subject="Anymail all-options integration test FILES",
+            subject="Anymail all-options integration test",
             body="This is the text body",
             from_email='"Test From, with comma" <from@example.com>',
             to=["to1@sink.sendgrid.net", '"Recipient 2, OK?" <to2@sink.sendgrid.net>'],
@@ -74,7 +75,7 @@ class SendGridBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
             tags=["tag 1", "tag 2"],
             track_clicks=True,
             track_opens=True,
-            esp_extra={'asm': {'group_id': 1}},
+            # esp_extra={'asm': {'group_id': 1}},  # this breaks activity feed if you don't have an asm group
         )
         message.attach("attachment1.txt", "Here is some\ntext for you", "text/plain")
         message.attach("attachment2.csv", "ID,Name\n1,Amy Lina", "text/csv")
@@ -89,13 +90,14 @@ class SendGridBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
 
     def test_merge_data(self):
         message = AnymailMessage(
-            subject="Anymail merge_data test: %value%",
-            body="This body includes merge data: %value%",
+            subject="Anymail merge_data test: %field%",
+            body="This body includes merge data: %field%",
             from_email="Test From <from@example.com>",
             to=["to1@sink.sendgrid.net", "Recipient 2 <to2@sink.sendgrid.net>"],
+            reply_to=['"Merge data in reply name: %field%" <reply@example.com>'],
             merge_data={
-                'to1@sink.sendgrid.net': {'value': 'one'},
-                'to2@sink.sendgrid.net': {'value': 'two'},
+                'to1@sink.sendgrid.net': {'field': 'one'},
+                'to2@sink.sendgrid.net': {'field': 'two'},
             },
             esp_extra={
                 'merge_field_format': '%{}%',
@@ -105,6 +107,25 @@ class SendGridBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
         recipient_status = message.anymail_status.recipients
         self.assertEqual(recipient_status['to1@sink.sendgrid.net'].status, 'queued')
         self.assertEqual(recipient_status['to2@sink.sendgrid.net'].status, 'queued')
+
+    @unittest.skipUnless(SENDGRID_TEST_TEMPLATE_ID,
+                         "Set the SENDGRID_TEST_TEMPLATE_ID environment variable "
+                         "to a template in your SendGrid account to test stored templates")
+    def test_stored_template(self):
+        message = AnymailMessage(
+            from_email="Test From <from@example.com>",
+            to=["to@sink.sendgrid.net"],
+            template_id=SENDGRID_TEST_TEMPLATE_ID,
+            # The test template in the Anymail Test account has a substitution "-field-":
+            merge_global_data={
+                'field': 'value from merge_global_data',
+            },
+            esp_extra={
+                'merge_field_format': '-{}-',
+            },
+        )
+        message.send()
+        self.assertEqual(message.anymail_status.status, {'queued'})
 
     @override_settings(ANYMAIL_SENDGRID_API_KEY="Hey, that's not an API key!")
     def test_invalid_api_key(self):

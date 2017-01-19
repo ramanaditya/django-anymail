@@ -146,7 +146,7 @@ class SendGridPayload(RequestsPayload):
             to_list = base_personalizations.pop("to")  # {email, name?} for each message.to
             all_fields = set()
             for recipient in to_list:
-                personalization = dict(base_personalizations)  # copy: captures cc, bcc, and any esp_extra
+                personalization = base_personalizations.copy()  # captures cc, bcc, and any esp_extra
                 personalization["to"] = [recipient]
                 try:
                     recipient_data = self.merge_data[recipient["email"]]
@@ -170,6 +170,17 @@ class SendGridPayload(RequestsPayload):
                 merge_field_format.format(field): data
                 for field, data in self.merge_global_data.items()
             })
+
+            # Confusingly, "Section tags have to be contained within a Substitution tag"
+            # (https://sendgrid.com/docs/API_Reference/SMTP_API/section_tags.html),
+            # so we need to insert a "-field-": "-field-" identity fallback for each
+            # missing global field in the recipient substitutions...
+            global_fields = [merge_field_format.format(field)
+                             for field in self.merge_global_data.keys()]
+            for personalization in self.data["personalizations"]:
+                substitutions = personalization.setdefault("substitutions", {})
+                substitutions.update({field: field for field in global_fields
+                                      if field not in substitutions})
 
             if (self.merge_field_format is None and
                     all(field.isalnum() for field in self.merge_global_data.keys())):
@@ -212,7 +223,8 @@ class SendGridPayload(RequestsPayload):
             self.all_recipients += emails  # used for backend.parse_recipient_status
 
     def set_subject(self, subject):
-        self.data["subject"] = subject
+        if subject != "":  # see note in set_text_body about template rendering
+            self.data["subject"] = subject
 
     def set_reply_to(self, emails):
         # SendGrid only supports a single address in the reply_to API param.
@@ -230,19 +242,26 @@ class SendGridPayload(RequestsPayload):
         })
 
     def set_text_body(self, body):
-        self.data.setdefault("content", []).append({
-            "type": "text/plain",
-            "value": body,
-        })
+        # Empty strings (the EmailMessage default) can cause unexpected SendGrid
+        # template rendering behavior, such as ignoring the HTML template and
+        # rendering HTML from the plaintext template instead.
+        # Treat an empty string as a request to omit the body
+        # (which means use the template content if present.)
+        if body != "":
+            self.data.setdefault("content", []).append({
+                "type": "text/plain",
+                "value": body,
+            })
 
     def set_html_body(self, body):
         # SendGrid's API permits multiple html bodies
         # "If you choose to include the text/plain or text/html mime types, they must be
         # the first indices of the content array in the order text/plain, text/html."
-        self.data.setdefault("content", []).append({
-            "type": "text/html",
-            "value": body,
-        })
+        if body != "":  # see note in set_text_body about template rendering
+            self.data.setdefault("content", []).append({
+                "type": "text/html",
+                "value": body,
+            })
 
     def add_alternative(self, content, mimetype):
         # SendGrid is one of the few ESPs that supports arbitrary alternative parts in their API
