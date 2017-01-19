@@ -24,7 +24,7 @@ SENDGRID_TEST_PASSWORD = os.getenv('SENDGRID_TEST_PASSWORD')
                      "Set SENDGRID_TEST_API_KEY environment variable "
                      "to run SendGrid integration tests")
 @override_settings(ANYMAIL_SENDGRID_API_KEY=SENDGRID_TEST_API_KEY,
-                   EMAIL_BACKEND="anymail.backends.sendgrid_v2.SendGridBackend")
+                   EMAIL_BACKEND="anymail.backends.sendgrid_v2.EmailBackend")
 class SendGridBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
     """SendGrid v2 API integration tests
 
@@ -123,7 +123,7 @@ class SendGridBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
                      "environment variables to run SendGrid integration tests")
 @override_settings(ANYMAIL_SENDGRID_USERNAME=SENDGRID_TEST_USERNAME,
                    ANYMAIL_SENDGRID_PASSWORD=SENDGRID_TEST_PASSWORD,
-                   EMAIL_BACKEND="anymail.backends.sendgrid_v2.SendGridBackend")
+                   EMAIL_BACKEND="anymail.backends.sendgrid_v2.EmailBackend")
 class SendGridBackendUserPassIntegrationTests(SimpleTestCase, AnymailTestMixin):
     """SendGrid username/password API integration tests
 

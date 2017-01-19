@@ -10,10 +10,12 @@ from ..utils import get_anymail_setting, timestamp
 from .base_requests import AnymailRequestsBackend, RequestsPayload
 
 
-class SendGridBackend(AnymailRequestsBackend):
+class EmailBackend(AnymailRequestsBackend):
     """
     SendGrid v2 API Email Backend (deprecated)
     """
+
+    esp_name = "SendGrid"
 
     def __init__(self, **kwargs):
         """Init options from Django settings"""
@@ -41,7 +43,7 @@ class SendGridBackend(AnymailRequestsBackend):
                                       default="https://api.sendgrid.com/api/")
         if not api_url.endswith("/"):
             api_url += "/"
-        super(SendGridBackend, self).__init__(api_url, **kwargs)
+        super(EmailBackend, self).__init__(api_url, **kwargs)
 
     def build_message_payload(self, message, defaults):
         return SendGridPayload(message, defaults, self)
@@ -63,6 +65,9 @@ class SendGridBackend(AnymailRequestsBackend):
 
 
 class SendGridPayload(RequestsPayload):
+    """
+    SendGrid v2 API Mail Send payload
+    """
 
     def __init__(self, message, defaults, backend, *args, **kwargs):
         self.all_recipients = []  # used for backend.parse_recipient_status

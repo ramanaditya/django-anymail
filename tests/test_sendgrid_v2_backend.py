@@ -20,7 +20,7 @@ from .mock_requests_backend import RequestsBackendMockAPITestCase, SessionSharin
 from .utils import sample_image_content, sample_image_path, SAMPLE_IMAGE_FILENAME, AnymailTestMixin
 
 
-@override_settings(EMAIL_BACKEND='anymail.backends.sendgrid_v2.SendGridBackend',
+@override_settings(EMAIL_BACKEND='anymail.backends.sendgrid_v2.EmailBackend',
                    ANYMAIL={'SENDGRID_API_KEY': 'test_api_key'})
 class SendGridBackendMockAPITestCase(RequestsBackendMockAPITestCase):
     DEFAULT_RAW_RESPONSE = b"""{
@@ -611,7 +611,7 @@ class SendGridBackendSessionSharingTestCase(SessionSharingTestCasesMixin, SendGr
     pass  # tests are defined in the mixin
 
 
-@override_settings(EMAIL_BACKEND="anymail.backends.sendgrid_v2.SendGridBackend")
+@override_settings(EMAIL_BACKEND="anymail.backends.sendgrid_v2.EmailBackend")
 class SendGridBackendImproperlyConfiguredTests(SimpleTestCase, AnymailTestMixin):
     """Test ESP backend without required settings in place"""
 
