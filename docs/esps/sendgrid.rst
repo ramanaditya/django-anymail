@@ -3,19 +3,25 @@
 SendGrid
 ========
 
-.. warning::
-
-    Anymail's default SendGrid backend (on this feature branch) now uses SendGrid's v3 API.
-    These docs *have not been updated yet,* and may contain some incorrect information.
-
-    The old API is still available as `"anymail.backends.sendgrid_v2.SendGridBackend"`.
-    You must use the old API if you need username/password auth, or if your code contains
-    `esp_extra` settings that reference v2's `"x-smtpapi"` features.
-
 Anymail integrates with the `SendGrid`_ email service, using their `Web API v3`_.
+
+.. versionchanged:: 0.8
+
+    Earlier Anymail releases used SendGrid's v2 API. If you are upgrading,
+    please review the :ref:`porting notes <sendgrid-v3-upgrade>`.
+
+.. important::
+
+    **Troubleshooting:**
+    If your SendGrid messages aren't being delivered as expected, be sure to look for
+    "drop" events in your SendGrid `activity feed`_.
+
+    SendGrid detects certain types of errors only *after* the send API call appears
+    to succeed, and reports these errors as drop events.
 
 .. _SendGrid: https://sendgrid.com/
 .. _Web API v3: https://sendgrid.com/docs/API_Reference/Web_API_v3/Mail/index.html
+.. _activity feed: https://app.sendgrid.com/email_activity?events=drops
 
 
 Settings
@@ -40,8 +46,7 @@ their name with an uppercase "G", so Anymail does too.)
 
 A SendGrid API key with "Mail Send" permission.
 (Manage API keys in your `SendGrid API key settings`_.)
-Either an API key or both :setting:`SENDGRID_USERNAME <ANYMAIL_SENDGRID_USERNAME>`
-and :setting:`SENDGRID_PASSWORD <ANYMAIL_SENDGRID_PASSWORD>` are required.
+Required.
 
   .. code-block:: python
 
@@ -55,34 +60,6 @@ root of the settings file if neither ``ANYMAIL["SENDGRID_API_KEY"]``
 nor ``ANYMAIL_SENDGRID_API_KEY`` is set.
 
 .. _SendGrid API key settings: https://app.sendgrid.com/settings/api_keys
-
-
-.. setting:: ANYMAIL_SENDGRID_USERNAME
-.. setting:: ANYMAIL_SENDGRID_PASSWORD
-
-.. rubric:: SENDGRID_USERNAME and SENDGRID_PASSWORD
-
-SendGrid credentials with the "Mail" permission. You should **not**
-use the username/password that you use to log into SendGrid's
-dashboard. Create credentials specifically for sending mail in the
-`SendGrid credentials settings`_.
-
-  .. code-block:: python
-
-      ANYMAIL = {
-          ...
-          "SENDGRID_USERNAME": "<sendgrid credential with Mail permission>",
-          "SENDGRID_PASSWORD": "<password for that credential>",
-      }
-
-Either username/password or :setting:`SENDGRID_API_KEY <ANYMAIL_SENDGRID_API_KEY>`
-are required (but not both).
-
-Anymail will also look for ``SENDGRID_USERNAME`` and ``SENDGRID_PASSWORD`` at the
-root of the settings file if neither ``ANYMAIL["SENDGRID_USERNAME"]``
-nor ``ANYMAIL_SENDGRID_USERNAME`` is set.
-
-.. _SendGrid credentials settings: https://app.sendgrid.com/settings/credentials
 
 
 .. setting:: ANYMAIL_SENDGRID_GENERATE_MESSAGE_ID
@@ -128,9 +105,9 @@ below.
 
 .. rubric:: SENDGRID_API_URL
 
-The base url for calling the SendGrid v2 API.
+The base url for calling the SendGrid API.
 
-The default is ``SENDGRID_API_URL = "https://api.sendgrid.com/api/"``
+The default is ``SENDGRID_API_URL = "https://api.sendgrid.com/v3/"``
 (It's unlikely you would need to change this.)
 
 
@@ -141,28 +118,28 @@ esp_extra support
 
 To use SendGrid features not directly supported by Anymail, you can
 set a message's :attr:`~anymail.message.AnymailMessage.esp_extra` to
-a `dict` of parameters for SendGrid's `mail.send API`_. Any keys in
-your :attr:`esp_extra` dict will override Anymail's normal values
-for that parameter, except that `'x-smtpapi'` will be merged.
+a `dict` of parameters for SendGrid's `v3 Mail Send API`_.
+Your :attr:`esp_extra` dict will be deeply merged into the
+parameters Anymail has constructed for the send, with `esp_extra`
+having precedence in conflicts.
 
 Example:
 
     .. code-block:: python
 
+        message.open_tracking = True
         message.esp_extra = {
-            'x-smtpapi': {
-                "asm_group": 1,  # Assign SendGrid unsubscribe group for this message
-                "asm_groups_to_display": [1, 2, 3],
-                "filters": {
-                    "subscriptiontrack": {  # Insert SendGrid subscription management links
-                        "settings": {
-                            "text/html": "If you would like to unsubscribe <% click here %>.",
-                            "text/plain": "If you would like to unsubscribe click here: <% %>.",
-                            "enable": 1
-                        }
-                    }
-                }
-            }
+            "asm": {  # SendGrid subscription management
+                "group_id": 1,
+                "groups_to_display": [1, 2, 3],
+            },
+            "tracking_settings": {
+                "open_tracking": {
+                    # Anymail will automatically set `"enable": True` here,
+                    # based on message.open_tracking.
+                    "substitution_tag": "%%OPEN_TRACKING_PIXEL%%",
+                },
+            },
         }
 
 
@@ -171,21 +148,13 @@ Example:
 messages.)
 
 
-.. _mail.send API: https://sendgrid.com/docs/API_Reference/Web_API/mail.html#-send
+.. _v3 Mail Send API:
+    https://sendgrid.com/docs/API_Reference/Web_API_v3/Mail/index.html#-Request-Body-Parameters
 
 
 
 Limitations and quirks
 ----------------------
-
-**Duplicate attachment filenames**
-  Anymail is not capable of communicating multiple attachments with
-  the same filename to SendGrid. (This also applies to multiple attachments
-  with *no* filename, though not to inline images.)
-
-  If you are sending multiple attachments on a single message,
-  make sure each one has a unique, non-empty filename.
-
 
 .. _sendgrid-message-id:
 
@@ -211,6 +180,14 @@ Limitations and quirks
   To disable all of these Message-ID workarounds, set
   :setting:`ANYMAIL_SENDGRID_GENERATE_MESSAGE_ID` to False in your settings.
 
+**Single Reply-To**
+  SendGrid's v3 API only supports a single Reply-To address (and blocks
+  a workaround that was possible with the v2 API).
+
+  If your message has multiple reply addresses, you'll get an
+  :exc:`~anymail.exceptions.AnymailUnsupportedFeature` error---or
+  if you've enabled :setting:`ANYMAIL_IGNORE_UNSUPPORTED_FEATURES`,
+  Anymail will use only the first one.
 
 **Invalid Addresses**
   SendGrid will accept *and send* just about anything as
@@ -243,8 +220,7 @@ message attributes.
 
       message = EmailMessage(
           ...
-          subject="",  # don't add any additional subject content to the template
-          body="",  # (same thing for additional body content)
+          # omit subject and body (or set to None) to use template content
           to=["alice@example.com", "Bob <bob@example.com>"]
       )
       message.template_id = "5997fcf6-2b9f-484d-acd5-7e9a99f0dc1f"  # SendGrid id
@@ -280,19 +256,15 @@ There are three ways you can do this:
 
 When you supply per-recipient :attr:`~anymail.message.AnymailMessage.merge_data`,
 Anymail automatically changes how it communicates the "to" list to SendGrid, so that
-so that each recipient sees only their own email address. (Anymail moves the recipients
-from top-level "to" and "toname" API parameters into the "x-smtpapi" section "to" list.)
+so that each recipient sees only their own email address. (Anymail creates a separate
+"personalization" for each recipient in the "to" list; any cc's or bcc's will be
+duplicated for *every* to-recipient.)
 
 SendGrid templates allow you to mix your EmailMessage's `subject` and `body`
 with the template subject and body (by using `<%subject%>` and `<%body%>` in
 your SendGrid template definition where you want the message-specific versions
 to appear). If you don't want to supply any additional subject or body content
-from your Django app, set those EmailMessage attributes to empty strings.
-
-(Anymail will convert empty text and HTML bodies to single spaces whenever
-:attr:`~anymail.message.AnymailMessage.template_id` is set, to ensure the
-plaintext and HTML from your template are present in your outgoing email.
-This works around a `limitation in SendGrid's template rendering`_.)
+from your Django app, set those EmailMessage attributes to empty strings or `None`.
 
 See the `SendGrid's template overview`_ and `transactional template docs`_
 for more information.
@@ -301,8 +273,6 @@ for more information.
     https://sendgrid.com/docs/User_Guide/Transactional_Templates/index.html
 .. _transactional template docs:
     https://sendgrid.com/docs/API_Reference/Web_API_v3/Transactional_Templates/smtpapi.html
-.. _limitation in SendGrid's template rendering:
-    https://sendgrid.com/docs/API_Reference/Web_API_v3/Transactional_Templates/smtpapi.html#-Text-or-HTML-Templates
 
 
 .. _sendgrid-webhooks:
@@ -331,3 +301,186 @@ for each event in the batch.)
 
 .. _SendGrid mail settings: https://app.sendgrid.com/settings/mail_settings
 .. _Sendgrid event: https://sendgrid.com/docs/API_Reference/Webhooks/event.html
+
+
+
+.. _sendgrid-v3-upgrade:
+
+Upgrading to SendGrid's v3 API
+------------------------------
+
+Anymail v0.8 switched to SendGrid's preferred v3 send API.
+(Earlier Anymail releases used their v2 API.)
+
+For many Anymail projects, this change will be entirely transparent.
+(Anymail's whole reason for existence is abstracting ESP APIs,
+so that your own code doesn't need to worry about the details.)
+
+There are three cases where SendGrid has changed features
+that would require updates to your code:
+
+1. If you are using SendGrid's username/password auth (your settings
+   include :setting:`SENDGRID_USERNAME <ANYMAIL_SENDGRID_USERNAME>`
+   and :setting:`SENDGRID_PASSWORD <ANYMAIL_SENDGRID_PASSWORD>`),
+   you must switch to an API key.
+   See :setting:`SENDGRID_API_KEY <ANYMAIL_SENDGRID_API_KEY>`.
+
+   (If you are already using a SendGrid API key with v2, it should
+   work just fine with v3.)
+
+2. If you are using Anymail's
+   :attr:`~anymail.message.AnymailMessage.esp_extra` attribute
+   to supply API-specific parameters, the format has changed.
+
+   Search your code for "esp_extra" (e.g., `git grep esp_extra`)
+   to determine whether this affects you. (Anymail's
+   `"merge_field_format"` is unchanged, so if that's the only
+   thing you have in esp_extra, no changes are needed.)
+
+   The new API format is considerably simpler and more logical.
+   See :ref:`sendgrid-esp-extra` below for examples of the
+   new format and a link to relevant SendGrid docs.
+
+   Anymail will raise an error if it detects an attempt to use
+   the v2-only `"x-smtpapi"` settings in esp_extra when sending.
+
+3. If you send messages with multiple Reply-To addresses, SendGrid
+   no longer supports this. (Multiple reply emails in a single
+   message are not common.)
+
+   Anymail will raise an error if you attempt to send a message with
+   multiple Reply-To emails. (You can suppress the error with
+   :setting:`ANYMAIL_IGNORE_UNSUPPORTED_FEATURES`, which will
+   ignore all but the first reply address.)
+
+
+As an alternative, Anymail (for the time being) still includes
+a copy of the SendGrid v2 backend. See :ref:`sendgrid-v2-backend`
+below if you'd prefer to stay on the older SendGrid API.
+
+
+.. _sendgrid-v2-backend:
+
+Legacy v2 API support
+---------------------
+
+.. versionchanged:: 0.8
+
+Anymail v0.8 switched to SendGrid's v3 Web API in its primary SendGrid
+email backend. SendGrid `encourages`_ all users to migrate to their v3 API.
+
+For Anymail users who still need it, a legacy backend that calls SendGrid's
+earlier `Web API v2 Mail Send`_ remains available. Be aware that v2 support
+is considered deprecated and may be removed in a future Anymail release.
+
+.. _encourages:
+    https://sendgrid.com/docs/Classroom/Send/v3_Mail_Send/how_to_migrate_from_v2_to_v3_mail_send.html
+.. _Web API v2 Mail Send:
+    https://sendgrid.com/docs/API_Reference/Web_API/mail.html
+
+
+To use Anymail's SendGrid v2 backend, edit your settings.py:
+
+  .. code-block:: python
+
+      EMAIL_BACKEND = "anymail.backends.sendgrid_v2.EmailBackend"
+      ANYMAIL = {
+          "SENDGRID_API_KEY": "<your API key>",
+      }
+
+The same :setting:`SENDGRID_API_KEY <ANYMAIL_SENDGRID_API_KEY>` will work
+with either Anymail's v2 or v3 SendGrid backend.
+
+Nearly all of the documentation above for Anymail's v3 SendGrid backend
+also applies to the v2 backend, with the following changes:
+
+.. setting:: ANYMAIL_SENDGRID_USERNAME
+.. setting:: ANYMAIL_SENDGRID_PASSWORD
+
+.. rubric:: Username/password auth (SendGrid v2 only)
+
+SendGrid v2 allows a username/password instead of an API key
+(though SendGrid encourages API keys for all new installations).
+If you must use username/password auth, set:
+
+  .. code-block:: python
+
+      EMAIL_BACKEND = "anymail.backends.sendgrid_v2.EmailBackend"
+      ANYMAIL = {
+          "SENDGRID_USERNAME": "<sendgrid credential with Mail permission>",
+          "SENDGRID_PASSWORD": "<password for that credential>",
+          # And leave out "SENDGRID_API_KEY"
+      }
+
+This is **not** the username/password that you use to log into SendGrid's
+dashboard. Create credentials specifically for sending mail in the
+`SendGrid credentials settings`_.
+
+Either username/password or :setting:`SENDGRID_API_KEY <ANYMAIL_SENDGRID_API_KEY>`
+are required (but not both).
+
+Anymail will also look for ``SENDGRID_USERNAME`` and ``SENDGRID_PASSWORD`` at the
+root of the settings file if neither ``ANYMAIL["SENDGRID_USERNAME"]``
+nor ``ANYMAIL_SENDGRID_USERNAME`` is set.
+
+.. _SendGrid credentials settings: https://app.sendgrid.com/settings/credentials
+
+
+.. rubric:: Duplicate attachment filenames (SendGrid v2 limitation)
+
+Anymail is not capable of communicating multiple attachments with
+the same filename to the SendGrid v2 API. (This also applies to multiple
+attachments with *no* filename, though not to inline images.)
+
+If you are sending multiple attachments on a single message,
+make sure each one has a unique, non-empty filename.
+
+
+.. rubric:: Message bodies with ESP templates (SendGrid v2 quirk)
+
+Anymail's SendGrid v2 backend will convert empty text and HTML bodies to single spaces whenever
+:attr:`~anymail.message.AnymailMessage.template_id` is set, to ensure the
+plaintext and HTML from your template are present in your outgoing email.
+This works around a `limitation in SendGrid's template rendering`_.
+
+.. _limitation in SendGrid's template rendering:
+    https://sendgrid.com/docs/API_Reference/Web_API_v3/Transactional_Templates/smtpapi.html#-Text-or-HTML-Templates
+
+
+.. rubric:: Multiple Reply-To addresses (SendGrid v2 only)
+
+Unlike SendGrid's v3 API, Anymail is able to support multiple
+Reply-To addresses with their v2 API.
+
+
+.. rubric:: esp_extra with SendGrid v2
+
+Anymail's :attr:`~anymail.message.AnymailMessage.esp_extra` attribute
+is merged directly with the API parameters, so the format varies
+between SendGrid's v2 and v3 APIs. With the v2 API, most interesting
+settings appear beneath `'x-smtpapi'`. Example:
+
+    .. code-block:: python
+
+        message.esp_extra = {
+            'x-smtpapi': {  # for SendGrid v2 API
+                "asm_group": 1,  # Assign SendGrid unsubscribe group for this message
+                "asm_groups_to_display": [1, 2, 3],
+                "filters": {
+                    "subscriptiontrack": {  # Insert SendGrid subscription management links
+                        "settings": {
+                            "text/html": "If you would like to unsubscribe <% click here %>.",
+                            "text/plain": "If you would like to unsubscribe click here: <% %>.",
+                            "enable": 1
+                        }
+                    }
+                }
+            }
+        }
+
+The value of :attr:`esp_extra` should be a `dict` of parameters for SendGrid's
+`v2 mail.send API`_. Any keys in the dict will override Anymail's normal values
+for that parameter, except that `'x-smtpapi'` will be merged.
+
+.. _v2 mail.send API:
+    https://sendgrid.com/docs/API_Reference/Web_API/mail.html#-send
