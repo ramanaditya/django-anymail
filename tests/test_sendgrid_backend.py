@@ -165,10 +165,19 @@ class SendGridBackendStandardEmailTests(SendGridBackendMockAPITestCase):
         data = self.get_api_call_json()
         self.assertEqual(data['reply_to'], {'name': "Reply recipient", 'email': "reply@example.com"})
 
+    def test_multiple_reply_to(self):
         # SendGrid v3 prohibits Reply-To in custom headers, and only allows a single reply address
+        self.message.reply_to = ['"Reply recipient" <reply@example.com', 'reply2@example.com']
         with self.assertRaises(AnymailUnsupportedFeature):
-            self.message.reply_to = ['"Reply recipient" <reply@example.com', 'reply2@example.com']
             self.message.send()
+
+    @override_settings(ANYMAIL_IGNORE_UNSUPPORTED_FEATURES=True)
+    def test_multiple_reply_to_ignore_unsupported(self):
+        # Should use first Reply-To if ignoring unsupported features
+        self.message.reply_to = ['"Reply recipient" <reply@example.com', 'reply2@example.com']
+        self.message.send()
+        data = self.get_api_call_json()
+        self.assertEqual(data['reply_to'], {'name': "Reply recipient", 'email': "reply@example.com"})
 
     def test_attachments(self):
         text_content = "* Item one\n* Item two\n* Item three"
