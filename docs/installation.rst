@@ -6,28 +6,23 @@ Installation and configuration
 Installing Anymail
 ------------------
 
-It's easiest to install Anymail from PyPI using pip.
+To use Anymail in your Django project:
+
+1. Install the django-anymail app. It's easiest to install from PyPI using pip:
 
     .. code-block:: console
 
         $ pip install django-anymail[sendgrid,sparkpost]
 
-The `[sendgrid,sparkpost]` part of that command tells pip you also
-want to install additional packages required for those ESPs.
-You can give one or more comma-separated, lowercase ESP names.
-(Most ESPs don't have additional requirements, so you can often
-just skip this. Or change your mind later. Anymail will let you know
-if there are any missing dependencies when you try to use it.)
+   The `[sendgrid,sparkpost]` part of that command tells pip you also
+   want to install additional packages required for those ESPs.
+   You can give one or more comma-separated, lowercase ESP names.
+   (Most ESPs don't have additional requirements, so you can often
+   just skip this. Or change your mind later. Anymail will let you know
+   if there are any missing dependencies when you try to use it.)
 
-
-.. _backend-configuration:
-
-Configuring Django's email backend
-----------------------------------
-
-To use Anymail for sending email, edit your Django project's :file:`settings.py`:
-
-1. Add :mod:`anymail` to your :setting:`INSTALLED_APPS` (anywhere in the list):
+2. Edit your Django project's :file:`settings.py`, and add :mod:`anymail`
+   to your :setting:`INSTALLED_APPS` (anywhere in the list):
 
     .. code-block:: python
 
@@ -37,8 +32,8 @@ To use Anymail for sending email, edit your Django project's :file:`settings.py`
             # ...
         ]
 
-2. Add an :setting:`ANYMAIL` settings dict, substituting the appropriate settings for
-   your ESP:
+3. Also in :file:`settings.py`, add an :setting:`ANYMAIL` settings dict,
+   substituting the appropriate settings for your ESP. E.g.:
 
     .. code-block:: python
 
@@ -49,7 +44,20 @@ To use Anymail for sending email, edit your Django project's :file:`settings.py`
    The exact settings vary by ESP.
    See the :ref:`supported ESPs <supported-esps>` section for specifics.
 
-3. Change your existing Django :setting:`EMAIL_BACKEND` to the Anymail backend
+Then continue with either or both of the next two sections, depending
+on which Anymail features you want to use.
+
+
+.. _backend-configuration:
+
+Configuring Django's email backend
+----------------------------------
+
+To use Anymail for *sending* email from Django, make additional changes
+in your project's :file:`settings.py`. (Skip this section if you are only
+planning to *receive* email.)
+
+1. Change your existing Django :setting:`EMAIL_BACKEND` to the Anymail backend
    for your ESP. For example, to send using Mailgun by default:
 
     .. code-block:: python
@@ -60,25 +68,27 @@ To use Anymail for sending email, edit your Django project's :file:`settings.py`
    use :ref:`multiple Anymail backends <multiple-backends>` to send particular
    messages through different ESPs.)
 
-Finally, if you don't already have a :setting:`DEFAULT_FROM_EMAIL` in your settings,
-this is a good time to add one. (Django's default is "webmaster\@localhost",
-which some ESPs will reject.)
+2. If you don't already have a :setting:`DEFAULT_FROM_EMAIL` in your settings,
+   this is a good time to add one. (Django's default is "webmaster\@localhost",
+   which some ESPs will reject.)
 
 With the settings above, you are ready to send outgoing email through your ESP.
-If you also want to enable status tracking, continue with the
-optional settings below. Otherwise, skip ahead to :ref:`sending-email`.
+If you also want to enable status tracking or inbound handling, continue with the
+settings below. Otherwise, skip ahead to :ref:`sending-email`.
 
 
 .. _webhooks-configuration:
 
-Configuring status tracking webhooks (optional)
------------------------------------------------
+Configuring tracking and inbound webhooks
+-----------------------------------------
 
-Anymail can optionally connect to your ESP's event webhooks to notify your app
-of status like bounced and rejected emails, successful delivery, message opens
-and clicks, and other tracking.
+Anymail can optionally connect to your ESP's event webhooks to notify your app of:
 
-If you aren't using Anymail's webhooks, skip this section.
+* status tracking events for sent email, like bounced or rejected messages,
+  successful delivery, message opens and clicks, etc.
+* inbound message events, if you are set up to receive email through your ESP
+
+Skip this section if you won't be using Anymail's webhooks.
 
 .. warning::
 
@@ -87,14 +97,13 @@ If you aren't using Anymail's webhooks, skip this section.
     that could expose your users' emails and other private information,
     or subject your app to malicious input data.
 
-    At a minimum, your site should **use SSL** (https), and you should
+    At a minimum, your site should **use https** and you should
     configure **webhook authorization** as described below.
 
     See :ref:`securing-webhooks` for additional information.
 
 
-If you want to use Anymail's status tracking webhooks, follow the steps above
-to :ref:`configure an Anymail backend <backend-configuration>`, and then:
+If you want to use Anymail's inbound or tracking webhooks:
 
 1. In your :file:`settings.py`, add
    :setting:`WEBHOOK_AUTHORIZATION <ANYMAIL_WEBHOOK_AUTHORIZATION>`
@@ -148,14 +157,15 @@ to :ref:`configure an Anymail backend <backend-configuration>`, and then:
 3. Enter the webhook URL(s) into your ESP's dashboard or control panel.
    In most cases, the URL will be:
 
-   :samp:`https://{random}:{random}@{yoursite.example.com}/anymail/{esp}/tracking/`
+   :samp:`https://{random}:{random}@{yoursite.example.com}/anymail/{esp}/{type}/`
 
      * "https" (rather than http) is *strongly recommended*
      * *random:random* is the WEBHOOK_AUTHORIZATION string you created in step 1
      * *yoursite.example.com* is your Django site
      * "anymail" is the url prefix (from step 2)
      * *esp* is the lowercase name of your ESP (e.g., "sendgrid" or "mailgun")
-     * "tracking" is used for Anymail's sent-mail event tracking webhooks
+     * *type* is either "tracking" for Anymail's sent-mail event tracking webhooks,
+       or "inbound" for receiving email
 
    Some ESPs support different webhooks for different tracking events. You can
    usually enter the same Anymail webhook URL for all of them (or all that you
@@ -166,13 +176,14 @@ to :ref:`configure an Anymail backend <backend-configuration>`, and then:
    If so, you'll need to deploy your Django project to your live server before you
    can complete this step.
 
-   Some WSGI servers may need additional settings to pass HTTP authorization headers
-   through to Django. For example, Apache with `mod_wsgi`_ requires
-   `WSGIPassAuthorization On`, else Anymail will complain about "missing or invalid
-   basic auth" when your webhook is called.
+Some WSGI servers may need additional settings to pass HTTP authorization headers
+through to Django. For example, Apache with `mod_wsgi`_ requires
+`WSGIPassAuthorization On`, else Anymail will complain about "missing or invalid
+basic auth" when your webhook is called.
 
 See :ref:`event-tracking` for information on creating signal handlers and the
-status tracking events you can receive.
+status tracking events you can receive. See :ref:`inbound` for information on
+receiving inbound message events.
 
 .. _mod_wsgi: http://modwsgi.readthedocs.io/en/latest/configuration-directives/WSGIPassAuthorization.html
 
