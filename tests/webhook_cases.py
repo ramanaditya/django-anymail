@@ -64,6 +64,12 @@ class WebhookTestCase(AnymailTestMixin, SimpleTestCase):
                 self.assertEqual(actual_kwargs[key], expected_value)
         return actual_kwargs
 
+    def get_kwargs(self, mockfn):
+        """Return the kwargs passed to the most recent call to mockfn"""
+        self.assertIsNotNone(mockfn.call_args)  # mockfn hasn't been called yet
+        actual_args, actual_kwargs = mockfn.call_args
+        return actual_kwargs
+
 
 # noinspection PyUnresolvedReferences
 class WebhookBasicAuthTestsMixin(object):

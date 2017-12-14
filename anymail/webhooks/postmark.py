@@ -4,8 +4,9 @@ from django.utils.dateparse import parse_datetime
 
 from .base import AnymailBaseWebhookView
 from ..exceptions import AnymailConfigurationError
-from ..signals import tracking, AnymailTrackingEvent, EventType, RejectReason
-from ..utils import getfirst
+from ..inbound import AnymailInboundMessage
+from ..signals import inbound, tracking, AnymailInboundEvent, AnymailTrackingEvent, EventType, RejectReason
+from ..utils import getfirst, EmailAddress
 
 
 class PostmarkBaseWebhookView(AnymailBaseWebhookView):
@@ -107,3 +108,72 @@ class PostmarkTrackingWebhookView(PostmarkBaseWebhookView):
             user_agent=esp_event.get('UserAgent', None),
             click_url=esp_event.get('OriginalLink', None),
         )
+
+
+class PostmarkInboundWebhookView(PostmarkBaseWebhookView):
+    """Handler for Postmark inbound webhook"""
+
+    signal = inbound
+
+    def esp_to_anymail_event(self, esp_event):
+        attachments = [
+            AnymailInboundMessage.construct_attachment(
+                content_type=attachment["ContentType"],
+                content=attachment["Content"], base64=True,
+                filename=attachment.get("Name", "") or None,
+                content_id=attachment.get("ContentID", "") or None,
+            )
+            for attachment in esp_event.get("Attachments", [])
+        ]
+
+        message = AnymailInboundMessage.construct(
+            from_email=self._address(esp_event.get("FromFull")),
+            to=', '.join([self._address(to) for to in esp_event.get("ToFull", [])]),
+            cc=', '.join([self._address(cc) for cc in esp_event.get("CcFull", [])]),
+            # bcc? Postmark specs this for inbound events, but it's unclear how it could occur
+            subject=esp_event.get("Subject", ""),
+            headers=[(header["Name"], header["Value"]) for header in esp_event.get("Headers", [])],
+            text=esp_event.get("TextBody", ""),
+            html=esp_event.get("HtmlBody", ""),
+            attachments=attachments,
+        )
+
+        # Postmark strips these headers and provides them as separate event fields:
+        if "Date" in esp_event and "Date" not in message:
+            message["Date"] = esp_event["Date"]
+        if "ReplyTo" in esp_event and "Reply-To" not in message:
+            message["Reply-To"] = esp_event["ReplyTo"]
+
+        # Postmark doesn't have a separate envelope-sender field, but it can be extracted
+        # from the Received-SPF header that Postmark will have added:
+        if len(message.get_all("Received-SPF", [])) == 1:  # (more than one? someone's up to something weird)
+            received_spf = message["Received-SPF"].lower()
+            if received_spf.startswith("pass") or received_spf.startswith("neutral"):  # not fail/softfail
+                message.envelope_sender = message.get_param("envelope-from", None, header="Received-SPF")
+
+        message.envelope_recipient = esp_event.get("OriginalRecipient", None)
+        message.stripped_text = esp_event.get("StrippedTextReply", None)
+
+        message.spam_detected = message.get('X-Spam-Status', 'No').lower() == 'yes'
+        try:
+            message.spam_score = float(message['X-Spam-Score'])
+        except (TypeError, ValueError):
+            pass
+
+        return AnymailInboundEvent(
+            event_type=EventType.INBOUND,
+            timestamp=None,  # Postmark doesn't provide inbound event timestamp
+            event_id=esp_event.get("MessageID", None),  # Postmark uuid, different from Message-ID mime header
+            esp_event=esp_event,
+            message=message,
+        )
+
+    @staticmethod
+    def _address(full):
+        """Return an formatted email address from a Postmark inbound {From,To,Cc}Full dict"""
+        if full is None:
+            return ""
+        return str(EmailAddress(
+            display_name=full.get('Name', ""),
+            addr_spec=full.get("Email", ""),
+        ))
