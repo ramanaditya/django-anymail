@@ -45,6 +45,28 @@ class AnymailInboundMessageConstructionTests(SimpleTestCase):
             " by mx.example.com with SMTPS id 93s8iok for <to@example.com>;"
             " Sun, 22 Oct 2017 00:23:21 -0700 (PDT)"])
 
+    def test_construct_headers_from_raw(self):
+        # (note header "folding" in second Received header)
+        msg = AnymailInboundMessage.construct(
+            raw_headers=dedent("""\
+                Reply-To: reply@example.com
+                Subject: raw subject
+                Content-Type: x-custom/custom
+                Received: by 10.1.1.4 with SMTP id q4csp; Sun, 22 Oct 2017 00:23:22 -0700 (PDT)
+                Received: from mail.example.com (mail.example.com. [10.10.1.9])
+                 by mx.example.com with SMTPS id 93s8iok for <to@example.com>;
+                 Sun, 22 Oct 2017 00:23:21 -0700 (PDT)
+                """),
+            subject="Explicit subject overrides raw")
+        self.assertEqual(msg['Reply-To'], "reply@example.com")
+        self.assertEqual(msg.get_all('Received'), [
+            "by 10.1.1.4 with SMTP id q4csp; Sun, 22 Oct 2017 00:23:22 -0700 (PDT)",
+            "from mail.example.com (mail.example.com. [10.10.1.9])"  # unfolding should have stripped newlines
+            " by mx.example.com with SMTPS id 93s8iok for <to@example.com>;"
+            " Sun, 22 Oct 2017 00:23:21 -0700 (PDT)"])
+        self.assertEqual(msg.get_all('Subject'), ["Explicit subject overrides raw"])
+        self.assertEqual(msg.get_all('Content-Type'), ["multipart/mixed"])  # Content-Type in raw header ignored
+
     def test_construct_bodies(self):
         # this verifies we construct the expected MIME structure;
         # see the `text` and `html` props (in the ConveniencePropTests below)

@@ -7,6 +7,37 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from .utils import angle_wrap, get_content_disposition, parse_address_list, parse_rfc2822date
 
+# Python 2/3.*-compatible email.parser.HeaderParser(policy=email.policy.default)
+try:
+    # With Python 3.3+ (email6) package, can use HeaderParser with default policy
+    from email.parser import HeaderParser
+    from email.policy import default as accurate_header_unfolding_policy  # vs. compat32
+
+except ImportError:
+    # Earlier Pythons don't have HeaderParser, and/or try preserve earlier compatibility bugs
+    # by failing to properly unfold headers (see RFC 5322 section 2.2.3)
+    from email.parser import Parser
+    import re
+    accurate_header_unfolding_policy = object()
+
+    class HeaderParser(Parser, object):
+        def __init__(self, _class, policy=None):
+            # This "backport" doesn't actually support policies, but we want to ensure
+            # that callers aren't trying to use HeaderParser's default compat32 policy
+            # (which doesn't properly unfold headers)
+            assert policy is accurate_header_unfolding_policy
+            super(HeaderParser, self).__init__(_class)
+
+        def parsestr(self, text, headersonly=True):
+            unfolded = self._unfold_headers(text)
+            return super(HeaderParser, self).parsestr(unfolded, headersonly=True)
+
+        @staticmethod
+        def _unfold_headers(text):
+            # "Unfolding is accomplished by simply removing any CRLF that is immediately followed by WSP"
+            # (WSP is space or tab, and per email.parser semantics, we allow CRLF, CR, or LF endings)
+            return re.sub(r'(\r\n|\r|\n)(?=[ \t])', "", text)
+
 
 class AnymailInboundMessage(Message, object):  # `object` ensures new-style class in Python 2)
     """
@@ -170,7 +201,7 @@ class AnymailInboundMessage(Message, object):  # `object` ensures new-style clas
         return message_from_string(s, cls)
 
     @classmethod
-    def construct(cls, from_email=None, to=None, cc=None, subject=None, headers=None,
+    def construct(cls, raw_headers=None, from_email=None, to=None, cc=None, subject=None, headers=None,
                   text=None, text_charset='utf-8', html=None, html_charset='utf-8',
                   attachments=None):
         """
@@ -179,6 +210,7 @@ class AnymailInboundMessage(Message, object):  # `object` ensures new-style clas
         This is designed to handle the sorts of email fields typically present
         in ESP parsed inbound messages. (It's not a generalized MIME message constructor.)
 
+        :param raw_headers: {str|None} base (or complete) message headers as a single string
         :param from_email: {str|None} value for From header
         :param to: {str|None} value for To header
         :param cc: {str|None} value for Cc header
@@ -191,14 +223,23 @@ class AnymailInboundMessage(Message, object):  # `object` ensures new-style clas
         :param attachments: {list[MIMEBase]|None} as returned by construct_attachment
         :return: {AnymailInboundMessage}
         """
-        msg = cls()
+        if raw_headers is not None:
+            msg = HeaderParser(cls, policy=accurate_header_unfolding_policy).parsestr(raw_headers)
+            msg.set_payload(None)  # headersonly forces an empty string payload, which breaks things later
+        else:
+            msg = cls()
+
         if from_email is not None:
+            del msg['From']  # override raw_headers value, if any
             msg['From'] = from_email
         if to is not None:
+            del msg['To']
             msg['To'] = to
         if cc is not None:
+            del msg['Cc']
             msg['Cc'] = cc
         if subject is not None:
+            del msg['Subject']
             msg['Subject'] = subject
         if headers is not None:
             try:
@@ -211,6 +252,8 @@ class AnymailInboundMessage(Message, object):  # `object` ensures new-style clas
         # For simplicity, we always build a MIME structure that could support plaintext/html
         # alternative bodies, inline attachments for the body(ies), and message attachments.
         # This may be overkill for simpler messages, but the structure is never incorrect.
+        del msg['MIME-Version']  # override raw_headers values, if any
+        del msg['Content-Type']
         msg['MIME-Version'] = '1.0'
         msg['Content-Type'] = 'multipart/mixed'
 
