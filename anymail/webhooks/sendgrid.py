@@ -4,24 +4,18 @@ from datetime import datetime
 from django.utils.timezone import utc
 
 from .base import AnymailBaseWebhookView
-from ..signals import tracking, AnymailTrackingEvent, EventType, RejectReason
+from ..inbound import AnymailInboundMessage
+from ..signals import inbound, tracking, AnymailInboundEvent, AnymailTrackingEvent, EventType, RejectReason
 
 
-class SendGridBaseWebhookView(AnymailBaseWebhookView):
-    """Base view class for SendGrid webhooks"""
+class SendGridTrackingWebhookView(AnymailBaseWebhookView):
+    """Handler for SendGrid delivery and engagement tracking webhooks"""
+
+    signal = tracking
 
     def parse_events(self, request):
         esp_events = json.loads(request.body.decode('utf-8'))
         return [self.esp_to_anymail_event(esp_event) for esp_event in esp_events]
-
-    def esp_to_anymail_event(self, esp_event):
-        raise NotImplementedError()
-
-
-class SendGridTrackingWebhookView(SendGridBaseWebhookView):
-    """Handler for SendGrid delivery and engagement tracking webhooks"""
-
-    signal = tracking
 
     event_types = {
         # Map SendGrid event: Anymail normalized type
@@ -120,3 +114,77 @@ class SendGridTrackingWebhookView(SendGridBaseWebhookView):
         'url_offset',  # click tracking
         'useragent',  # click/open tracking
     }
+
+
+class SendGridInboundWebhookView(AnymailBaseWebhookView):
+    """Handler for SendGrid inbound webhook"""
+
+    signal = inbound
+
+    def parse_events(self, request):
+        return [self.esp_to_anymail_event(request)]
+
+    def esp_to_anymail_event(self, request):
+        # Inbound uses the entire Django request as esp_event, because we need POST and FILES.
+        # Note that request.POST is case-sensitive (unlike email.message.Message headers).
+        esp_event = request
+        if 'headers' in request.POST:
+            # Default (not "Send Raw") inbound fields
+            message = self.message_from_sendgrid_parsed(esp_event)
+        elif 'email' in request.POST:
+            # "Send Raw" full MIME
+            message = AnymailInboundMessage.parse_raw_mime(request.POST['email'])
+        else:
+            raise KeyError("Invalid SendGrid inbound event data (missing both 'headers' and 'email' fields)")
+
+        try:
+            envelope = json.loads(request.POST['envelope'])
+        except (KeyError, TypeError, ValueError):
+            pass
+        else:
+            message.envelope_sender = envelope['from']
+            message.envelope_recipient = envelope['to'][0]
+
+        message.spam_detected = None  # no simple boolean field; would need to parse the spam_report
+        try:
+            message.spam_score = float(request.POST['spam_score'])
+        except (KeyError, TypeError, ValueError):
+            pass
+
+        return AnymailInboundEvent(
+            event_type=EventType.INBOUND,
+            timestamp=None,  # SendGrid doesn't provide an inbound event timestamp
+            event_id=None,  # SendGrid doesn't provide an idempotent inbound message event id
+            esp_event=esp_event,
+            message=message,
+        )
+
+    def message_from_sendgrid_parsed(self, request):
+        """Construct a Message from SendGrid's "default" (non-raw) fields"""
+
+        try:
+            charsets = json.loads(request.POST['charsets'])
+        except (KeyError, ValueError):
+            charsets = {}
+
+        try:
+            attachment_info = json.loads(request.POST['attachment-info'])
+        except (KeyError, ValueError):
+            attachments = None
+        else:
+            # Load attachments from posted files
+            attachments = [
+                AnymailInboundMessage.construct_attachment_from_uploaded_file(
+                    request.FILES[att_id],
+                    content_id=attachment_info[att_id].get("content-id", None))
+                for att_id in sorted(attachment_info.keys())
+            ]
+
+        return AnymailInboundMessage.construct(
+            raw_headers=request.POST.get('headers', ""),  # includes From, To, Cc, Subject, etc.
+            text=request.POST.get('text', None),
+            text_charset=charsets.get('text', 'utf-8'),
+            html=request.POST.get('html', None),
+            html_charset=charsets.get('html', 'utf-8'),
+            attachments=attachments,
+        )
