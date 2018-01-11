@@ -9,7 +9,8 @@ from django.utils.timezone import utc
 
 from .base import AnymailBaseWebhookView
 from ..exceptions import AnymailWebhookValidationFailure, AnymailConfigurationError
-from ..signals import tracking, AnymailTrackingEvent, EventType
+from ..inbound import AnymailInboundMessage
+from ..signals import inbound, tracking, AnymailInboundEvent, AnymailTrackingEvent, EventType
 from ..utils import get_anymail_setting, getfirst, get_request_uri
 
 
@@ -148,4 +149,38 @@ class MandrillTrackingWebhookView(MandrillBaseWebhookView):
             tags=tags,
             timestamp=timestamp,
             user_agent=esp_event.get('user_agent', None),
+        )
+
+
+class MandrillInboundWebhookView(MandrillBaseWebhookView):
+    """Handler for Mandrill inbound webhook"""
+
+    signal = inbound
+
+    def esp_to_anymail_event(self, esp_event):
+        esp_type = getfirst(esp_event, ['event', 'type'], 'unknown')
+        if esp_type != 'inbound':
+            raise AnymailConfigurationError(
+                "You seem to have set Mandrill's *{esp_type}* webhook URL "
+                "to Anymail's Mandrill *inbound* webhook URL.".format(esp_type=esp_type))
+
+        # It's easier (and more accurate) to just work from the original raw mime message
+        message = AnymailInboundMessage.parse_raw_mime(esp_event['msg']['raw_msg'])
+        message.envelope_sender = None  # (Mandrill's 'sender' field only applies to outbound messages)
+        message.envelope_recipient = esp_event['msg'].get('email', None)
+
+        message.spam_detected = None  # no simple boolean field; would need to parse the spam_report
+        message.spam_score = esp_event['msg'].get('spam_report', {}).get('score', None)
+
+        try:
+            timestamp = datetime.fromtimestamp(esp_event['ts'], tz=utc)
+        except (KeyError, ValueError):
+            timestamp = None
+
+        return AnymailInboundEvent(
+            event_type=EventType.INBOUND,
+            timestamp=timestamp,
+            event_id=None,  # Mandrill doesn't provide an idempotent inbound message event id
+            esp_event=esp_event,
+            message=message,
         )
