@@ -271,6 +271,41 @@ class AnymailInboundMessageConveniencePropTests(SimpleTestCase):
         self.assertEqual(attachment_file.content_type, "image/png")
         self.assertEqual(attachment_file.read(), SAMPLE_IMAGE_CONTENT)
 
+    def test_attachment_as_file_security(self):
+        # Raw attachment filenames can be malicious; we want to make sure that
+        # our Django file converter sanitizes them (as much as any uploaded filename)
+        raw = dedent("""\
+            MIME-Version: 1.0
+            Subject: Attachment test
+            Content-Type: multipart/mixed; boundary="this_is_a_boundary"
+
+            --this_is_a_boundary
+            Content-Type: text/plain; charset="UTF-8"
+
+            The malicious attachment filenames below need to get sanitized
+
+            --this_is_a_boundary
+            Content-Type: text/plain; name="report.txt"
+            Content-Disposition: attachment; filename="/etc/passwd"
+
+            # (not that overwriting /etc/passwd is actually a thing
+            # anymore, but you get the point)
+            --this_is_a_boundary
+            Content-Type: text/html
+            Content-Disposition: attachment; filename="../static/index.html"
+
+            <body>Hey, did I overwrite your site?</body>
+            --this_is_a_boundary--
+            """)
+        msg = AnymailInboundMessage.parse_raw_mime(raw)
+        attachments = msg.attachments
+
+        self.assertEqual(attachments[0].get_filename(), "/etc/passwd")  # you wouldn't want to actually write here
+        self.assertEqual(attachments[0].as_file().name, "passwd")  # path removed - good!
+
+        self.assertEqual(attachments[1].get_filename(), "../static/index.html")
+        self.assertEqual(attachments[1].as_file().name, "index.html")  # ditto for relative paths
+
 
 class AnymailInboundMessageAttachedMessageTests(SimpleTestCase):
     # message/rfc822 attachments should get parsed recursively
