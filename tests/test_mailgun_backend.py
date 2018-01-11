@@ -159,7 +159,7 @@ class MailgunBackendStandardEmailTests(MailgunBackendMockAPITestCase):
         # Email messages can get a bit changed with respect to whitespace characters
         # in headers, without breaking the message, so we tolerate that:
         self.assertEqual(attachments[3][0], None)
-        self.assertEqualIgnoringWhitespace(
+        self.assertEqualIgnoringHeaderFolding(
             attachments[3][1],
             b'Content-Type: message/rfc822\nMIME-Version: 1.0\n\n' + forwarded_email_content)
         self.assertEqual(attachments[3][2], 'message/rfc822')

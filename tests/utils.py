@@ -8,6 +8,7 @@ import warnings
 from base64 import b64decode
 from contextlib import contextmanager
 
+import six
 from django.test import Client
 
 
@@ -33,6 +34,12 @@ RUN_LIVE_TESTS = envbool('RUN_LIVE_TESTS', default=not envbool('CONTINUOUS_INTEG
 def decode_att(att):
     """Returns the original data from base64-encoded attachment content"""
     return b64decode(att.encode('ascii'))
+
+
+def rfc822_unfold(text):
+    # "Unfolding is accomplished by simply removing any CRLF that is immediately followed by WSP"
+    # (WSP is space or tab, and per email.parser semantics, we allow CRLF, CR, or LF endings)
+    return re.sub(r'(\r\n|\r|\n)(?=[ \t])', "", text)
 
 
 #
@@ -133,11 +140,18 @@ class AnymailTestMixin:
         except TypeError:
             return self.assertRegexpMatches(*args, **kwargs)  # Python 2
 
-    def assertEqualIgnoringWhitespace(self, first, second, msg=None):
-        # Useful for message/rfc822 attachment tests
-        self.assertEqual(first.replace(b'\n', b'').replace(b' ', b''),
-                         second.replace(b'\n', b'').replace(b' ', b''),
-                         msg)
+    def assertEqualIgnoringHeaderFolding(self, first, second, msg=None):
+        # Unfold (per RFC-8222) all text first and second, then compare result.
+        # Useful for message/rfc822 attachment tests, where various Python email
+        # versions handled folding slightly differently.
+        # (Technically, this is unfolding both headers and (incorrectly) bodies,
+        # but that doesn't really affect the tests.)
+        if isinstance(first, six.binary_type) and isinstance(second, six.binary_type):
+            first = first.decode('utf-8')
+            second = second.decode('utf-8')
+        first = rfc822_unfold(first)
+        second = rfc822_unfold(second)
+        self.assertEqual(first, second, msg)
 
 
 # Backported from python 3.5
