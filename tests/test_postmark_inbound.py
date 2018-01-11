@@ -91,7 +91,7 @@ class PostmarkInboundTestCase(WebhookTestCase):
         event = kwargs['event']
         self.assertIsInstance(event, AnymailInboundEvent)
         self.assertEqual(event.event_type, 'inbound')
-        self.assertEqual(event.timestamp, None)  # Postmark doesn't provide inbound event timestamp
+        self.assertIsNone(event.timestamp)  # Postmark doesn't provide inbound event timestamp
         self.assertEqual(event.event_id, "22c74902-a0c1-4511-804f2-341342852c90")
         self.assertIsInstance(event.message, AnymailInboundMessage)
         self.assertEqual(event.esp_event, raw_event)
@@ -113,7 +113,7 @@ class PostmarkInboundTestCase(WebhookTestCase):
         self.assertEqual(message.envelope_sender, 'envelope-from@example.org')
         self.assertEqual(message.envelope_recipient, 'test@inbound.example.com')
         self.assertEqual(message.stripped_text, 'stripped plaintext body')
-        self.assertEqual(message.stripped_html, None)  # Postmark doesn't provide stripped html
+        self.assertIsNone(message.stripped_html)  # Postmark doesn't provide stripped html
         self.assertIs(message.spam_detected, False)
         self.assertEqual(message.spam_score, 1.7)
 
@@ -142,7 +142,7 @@ class PostmarkInboundTestCase(WebhookTestCase):
                 "ContentID": "abc123",
                 "ContentLength": len(image_content)
             }, {
-                "Name": "image.png",
+                "Name": "bounce.txt",
                 "Content": b64encode(email_content).decode('ascii'),
                 "ContentType": 'message/rfc822; charset="us-ascii"',
                 "ContentLength": len(email_content)
