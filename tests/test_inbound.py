@@ -1,5 +1,6 @@
 from __future__ import unicode_literals
 
+from base64 import b64encode
 from textwrap import dedent
 
 from django.test import SimpleTestCase
@@ -146,6 +147,8 @@ class AnymailInboundMessageConstructionTests(SimpleTestCase):
         self.assertEqual(msg.get_content_text(), "This is a test body.\n")
         self.assertEqual(msg.defects, [])
 
+    # (see test_attachment_as_file below for parsing basic attachment from raw mime)
+
 
 class AnymailInboundMessageConveniencePropTests(SimpleTestCase):
     # AnymailInboundMessage defines several properties to simplify reading
@@ -267,3 +270,85 @@ class AnymailInboundMessageConveniencePropTests(SimpleTestCase):
         self.assertEqual(attachment_file.name, "sample_image.png")
         self.assertEqual(attachment_file.content_type, "image/png")
         self.assertEqual(attachment_file.read(), SAMPLE_IMAGE_CONTENT)
+
+
+class AnymailInboundMessageAttachedMessageTests(SimpleTestCase):
+    # message/rfc822 attachments should get parsed recursively
+
+    original_raw_message = dedent("""\
+        MIME-Version: 1.0
+        From: sender@example.com
+        Subject: Original message
+        Return-Path: bounces@inbound.example.com
+        Content-Type: multipart/related; boundary="boundary-orig"
+
+        --boundary-orig
+        Content-Type: text/html; charset="UTF-8"
+
+        <img src="cid:abc123"> Here is your message!
+
+        --boundary-orig
+        Content-Type: image/png; name="sample_image.png"
+        Content-Disposition: inline
+        Content-ID: <abc123>
+        Content-Transfer-Encoding: base64
+
+        {image_content_base64}
+        --boundary-orig--
+        """).format(image_content_base64=b64encode(SAMPLE_IMAGE_CONTENT).decode('ascii'))
+
+    def test_parse_rfc822_attachment_from_raw_mime(self):
+        # message/rfc822 attachments should be parsed recursively
+        raw = dedent("""\
+            MIME-Version: 1.0
+            From: mailer-demon@example.org
+            Subject: Undeliverable
+            To: bounces@inbound.example.com
+            Content-Type: multipart/mixed; boundary="boundary-bounce"
+
+            --boundary-bounce
+            Content-Type: text/plain
+
+            Your message was undeliverable due to carrier pigeon strike.
+            The original message is attached.
+
+            --boundary-bounce
+            Content-Type: message/rfc822
+            Content-Disposition: attachment
+
+            {original_raw_message}
+            --boundary-bounce--
+            """).format(original_raw_message=self.original_raw_message)
+
+        msg = AnymailInboundMessage.parse_raw_mime(raw)
+        self.assertIsInstance(msg, AnymailInboundMessage)
+
+        att = msg.get_payload(1)
+        self.assertIsInstance(att, AnymailInboundMessage)
+        self.assertEqual(att.get_content_type(), "message/rfc822")
+        self.assertTrue(att.is_attachment())
+
+        orig_msg = att.get_payload(0)
+        self.assertIsInstance(orig_msg, AnymailInboundMessage)
+        self.assertEqual(orig_msg['Subject'], "Original message")
+        self.assertEqual(orig_msg.get_content_type(), "multipart/related")
+        self.assertEqual(att.get_content_text(), self.original_raw_message)
+
+        orig_inline_att = orig_msg.get_payload(1)
+        self.assertEqual(orig_inline_att.get_content_type(), "image/png")
+        self.assertTrue(orig_inline_att.is_inline_attachment())
+        self.assertEqual(orig_inline_att.get_payload(decode=True), SAMPLE_IMAGE_CONTENT)
+
+    def test_construct_rfc822_attachment_from_data(self):
+        # constructed message/rfc822 attachment should end up as parsed message
+        # (same as if attachment was parsed from raw mime, as in previous test)
+        att = AnymailInboundMessage.construct_attachment('message/rfc822', self.original_raw_message)
+        self.assertIsInstance(att, AnymailInboundMessage)
+        self.assertEqual(att.get_content_type(), "message/rfc822")
+        self.assertTrue(att.is_attachment())
+        self.assertEqual(att.get_content_text(), self.original_raw_message)
+
+        orig_msg = att.get_payload(0)
+        self.assertIsInstance(orig_msg, AnymailInboundMessage)
+        self.assertEqual(orig_msg['Subject'], "Original message")
+        self.assertEqual(orig_msg.get_content_type(), "multipart/related")

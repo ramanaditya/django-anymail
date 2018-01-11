@@ -3,6 +3,7 @@ from email import message_from_string
 from email.message import Message
 from email.utils import unquote
 
+import six
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from .utils import angle_wrap, get_content_disposition, parse_address_list, parse_rfc2822date
@@ -174,10 +175,37 @@ class AnymailInboundMessage(Message, object):  # `object` ensures new-style clas
 
     def get_content_bytes(self):
         """Return the raw payload bytes"""
+        maintype = self.get_content_maintype()
+        if maintype == 'message':
+            # The attachment's payload is a single (parsed) email Message; flatten it to bytes.
+            # (Note that self.is_multipart() misleadingly returns True in this case.)
+            payload = self.get_payload()
+            assert len(payload) == 1  # should be exactly one message
+            try:
+                return payload[0].as_bytes()  # Python 3
+            except AttributeError:
+                return payload[0].as_string().encode('utf-8')
+        elif maintype == 'multipart':
+            # The attachment itself is multipart; the payload is a list of parts,
+            # and it's not clear which one is the "content".
+            raise ValueError("get_content_bytes() is not valid on multipart messages "
+                             "(perhaps you want as_bytes()?)")
         return self.get_payload(decode=True)
 
     def get_content_text(self, charset='utf-8'):
         """Return the payload decoded to text"""
+        maintype = self.get_content_maintype()
+        if maintype == 'message':
+            # The attachment's payload is a single (parsed) email Message; flatten it to text.
+            # (Note that self.is_multipart() misleadingly returns True in this case.)
+            payload = self.get_payload()
+            assert len(payload) == 1  # should be exactly one message
+            return payload[0].as_string()
+        elif maintype == 'multipart':
+            # The attachment itself is multipart; the payload is a list of parts,
+            # and it's not clear which one is the "content".
+            raise ValueError("get_content_text() is not valid on multipart messages "
+                             "(perhaps you want as_string()?)")
         return self.get_payload(decode=True).decode(charset)
 
     def as_file(self):
@@ -314,5 +342,14 @@ class AnymailInboundMessage(Message, object):  # `object` ensures new-style clas
         if base64:
             content = b64decode(content)
 
-        part.set_payload(content, charset)
+        payload = content
+        if part.get_content_maintype() == 'message':
+            # email.Message parses message/rfc822 parts as a "multipart" (list) payload
+            # whose single item is the recursively-parsed message attachment
+            if isinstance(content, six.binary_type):
+                content = content.decode()
+            payload = [cls.parse_raw_mime(content)]
+            charset = None
+
+        part.set_payload(payload, charset)
         return part

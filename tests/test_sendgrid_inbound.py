@@ -122,7 +122,7 @@ class SendgridInboundTestCase(WebhookTestCase):
         self.assertEqual(attachments[0].get_content_type(), 'text/plain')
         self.assertEqual(attachments[0].get_content_text(), u'test attachment')
         self.assertEqual(attachments[1].get_content_type(), 'message/rfc822')
-        self.assertEqual(attachments[1].get_content_bytes(), email_content)
+        self.assertEqualIgnoringHeaderFolding(attachments[1].get_content_bytes(), email_content)
 
         inlines = message.inline_attachments
         self.assertEqual(len(inlines), 1)
