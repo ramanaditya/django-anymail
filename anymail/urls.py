@@ -1,7 +1,7 @@
 from django.conf.urls import url
 
 from .webhooks.mailgun import MailgunInboundWebhookView, MailgunTrackingWebhookView
-from .webhooks.mailjet import MailjetTrackingWebhookView
+from .webhooks.mailjet import MailjetInboundWebhookView, MailjetTrackingWebhookView
 from .webhooks.mandrill import MandrillTrackingWebhookView
 from .webhooks.postmark import PostmarkInboundWebhookView, PostmarkTrackingWebhookView
 from .webhooks.sendgrid import SendGridInboundWebhookView, SendGridTrackingWebhookView
@@ -11,6 +11,7 @@ from .webhooks.sparkpost import SparkPostInboundWebhookView, SparkPostTrackingWe
 app_name = 'anymail'
 urlpatterns = [
     url(r'^mailgun/inbound(_mime)?/$', MailgunInboundWebhookView.as_view(), name='mailgun_inbound_webhook'),
+    url(r'^mailjet/inbound/$', MailjetInboundWebhookView.as_view(), name='mailjet_inbound_webhook'),
     url(r'^postmark/inbound/$', PostmarkInboundWebhookView.as_view(), name='postmark_inbound_webhook'),
     url(r'^sendgrid/inbound/$', SendGridInboundWebhookView.as_view(), name='sendgrid_inbound_webhook'),
     url(r'^sparkpost/inbound/$', SparkPostInboundWebhookView.as_view(), name='sparkpost_inbound_webhook'),
