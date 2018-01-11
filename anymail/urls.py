@@ -5,7 +5,7 @@ from .webhooks.mailjet import MailjetTrackingWebhookView
 from .webhooks.mandrill import MandrillTrackingWebhookView
 from .webhooks.postmark import PostmarkInboundWebhookView, PostmarkTrackingWebhookView
 from .webhooks.sendgrid import SendGridInboundWebhookView, SendGridTrackingWebhookView
-from .webhooks.sparkpost import SparkPostTrackingWebhookView
+from .webhooks.sparkpost import SparkPostInboundWebhookView, SparkPostTrackingWebhookView
 
 
 app_name = 'anymail'
@@ -13,6 +13,7 @@ urlpatterns = [
     url(r'^mailgun/inbound(_mime)?/$', MailgunInboundWebhookView.as_view(), name='mailgun_inbound_webhook'),
     url(r'^postmark/inbound/$', PostmarkInboundWebhookView.as_view(), name='postmark_inbound_webhook'),
     url(r'^sendgrid/inbound/$', SendGridInboundWebhookView.as_view(), name='sendgrid_inbound_webhook'),
+    url(r'^sparkpost/inbound/$', SparkPostInboundWebhookView.as_view(), name='sparkpost_inbound_webhook'),
 
     url(r'^mailgun/tracking/$', MailgunTrackingWebhookView.as_view(), name='mailgun_tracking_webhook'),
     url(r'^mailjet/tracking/$', MailjetTrackingWebhookView.as_view(), name='mailjet_tracking_webhook'),

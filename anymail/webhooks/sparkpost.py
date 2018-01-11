@@ -1,11 +1,13 @@
 import json
+from base64 import b64decode
 from datetime import datetime
 
 from django.utils.timezone import utc
 
 from .base import AnymailBaseWebhookView
 from ..exceptions import AnymailConfigurationError
-from ..signals import tracking, AnymailTrackingEvent, EventType, RejectReason
+from ..inbound import AnymailInboundMessage
+from ..signals import inbound, tracking, AnymailInboundEvent, AnymailTrackingEvent, EventType, RejectReason
 
 
 class SparkPostBaseWebhookView(AnymailBaseWebhookView):
@@ -92,7 +94,7 @@ class SparkPostTrackingWebhookView(SparkPostBaseWebhookView):
     }
 
     def esp_to_anymail_event(self, event_class, event, raw_event):
-        if event_class == 'relay_event':
+        if event_class == 'relay_message':
             # This is an inbound event
             raise AnymailConfigurationError(
                 "You seem to have set SparkPost's *inbound* relay webhook URL "
@@ -133,4 +135,38 @@ class SparkPostTrackingWebhookView(SparkPostBaseWebhookView):
             click_url=event.get('target_link_url', None),
             user_agent=event.get('user_agent', None),
             esp_event=raw_event,
+        )
+
+
+class SparkPostInboundWebhookView(SparkPostBaseWebhookView):
+    """Handler for SparkPost inbound relay webhook"""
+
+    signal = inbound
+
+    def esp_to_anymail_event(self, event_class, event, raw_event):
+        if event_class != 'relay_message':
+            # This is not an inbound event
+            raise AnymailConfigurationError(
+                "You seem to have set SparkPost's *tracking* webhook URL "
+                "to Anymail's SparkPost *inbound* relay webhook URL.")
+
+        if event['protocol'] != 'smtp':
+            raise AnymailConfigurationError(
+                "You cannot use Anymail's webhooks for SparkPost '{protocol}' relay events. "
+                "Anymail only handles the 'smtp' protocol".format(protocol=event['protocol']))
+
+        raw_mime = event['content']['email_rfc822']
+        if event['content']['email_rfc822_is_base64']:
+            raw_mime = b64decode(raw_mime).decode('utf-8')
+        message = AnymailInboundMessage.parse_raw_mime(raw_mime)
+
+        message.envelope_sender = event.get('msg_from', None)
+        message.envelope_recipient = event.get('rcpt_to', None)
+
+        return AnymailInboundEvent(
+            event_type=EventType.INBOUND,
+            timestamp=None,  # SparkPost does not provide a relay event timestamp
+            event_id=None,  # SparkPost does not provide an idempotent id for relay events
+            esp_event=raw_event,
+            message=message,
         )
