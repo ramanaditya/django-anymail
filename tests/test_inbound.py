@@ -147,7 +147,7 @@ class AnymailInboundMessageConstructionTests(SimpleTestCase):
         self.assertEqual(msg.get_content_text(), "This is a test body.\n")
         self.assertEqual(msg.defects, [])
 
-    # (see test_attachment_as_file below for parsing basic attachment from raw mime)
+    # (see test_attachment_as_uploaded_file below for parsing basic attachment from raw mime)
 
 
 class AnymailInboundMessageConveniencePropTests(SimpleTestCase):
@@ -233,7 +233,7 @@ class AnymailInboundMessageConveniencePropTests(SimpleTestCase):
         # Default empty dict
         self.assertEqual(AnymailInboundMessage().inline_attachments, {})
 
-    def test_attachment_as_file(self):
+    def test_attachment_as_uploaded_file(self):
         raw = dedent("""\
             MIME-Version: 1.0
             Subject: Attachment test
@@ -265,13 +265,13 @@ class AnymailInboundMessageConveniencePropTests(SimpleTestCase):
 
         msg = AnymailInboundMessage.parse_raw_mime(raw)
         attachment = msg.attachments[0]
-        attachment_file = attachment.as_file()
+        attachment_file = attachment.as_uploaded_file()
 
         self.assertEqual(attachment_file.name, "sample_image.png")
         self.assertEqual(attachment_file.content_type, "image/png")
         self.assertEqual(attachment_file.read(), SAMPLE_IMAGE_CONTENT)
 
-    def test_attachment_as_file_security(self):
+    def test_attachment_as_uploaded_file_security(self):
         # Raw attachment filenames can be malicious; we want to make sure that
         # our Django file converter sanitizes them (as much as any uploaded filename)
         raw = dedent("""\
@@ -301,10 +301,10 @@ class AnymailInboundMessageConveniencePropTests(SimpleTestCase):
         attachments = msg.attachments
 
         self.assertEqual(attachments[0].get_filename(), "/etc/passwd")  # you wouldn't want to actually write here
-        self.assertEqual(attachments[0].as_file().name, "passwd")  # path removed - good!
+        self.assertEqual(attachments[0].as_uploaded_file().name, "passwd")  # path removed - good!
 
         self.assertEqual(attachments[1].get_filename(), "../static/index.html")
-        self.assertEqual(attachments[1].as_file().name, "index.html")  # ditto for relative paths
+        self.assertEqual(attachments[1].as_uploaded_file().name, "index.html")  # ditto for relative paths
 
 
 class AnymailInboundMessageAttachedMessageTests(SimpleTestCase):

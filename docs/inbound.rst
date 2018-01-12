@@ -300,7 +300,7 @@ have these methods:
 
 .. class:: AnymailInboundMessage
 
-    .. method:: as_file()
+    .. method:: as_uploaded_file()
 
         Returns the attachment converted to a Django :class:`~django.core.files.uploadedfile.UploadedFile`
         object. This is suitable for assigning to a model's :class:`~django.db.models.FileField`
@@ -313,7 +313,7 @@ have these methods:
                 # for security, you must verify the content is really a jpeg
                 # (you'll need to supply the is_valid_jpeg function)
                 if is_valid_jpeg(attachment.get_content_bytes()):
-                    user.profile.avatar_image = attachment.as_file()
+                    user.profile.avatar_image = attachment.as_uploaded_file()
 
         See Django's docs on :doc:`django:topics/files` for more information
         on working with uploaded files.

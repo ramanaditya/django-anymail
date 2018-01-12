@@ -208,7 +208,7 @@ class AnymailInboundMessage(Message, object):  # `object` ensures new-style clas
                              "(perhaps you want as_string()?)")
         return self.get_payload(decode=True).decode(charset)
 
-    def as_file(self):
+    def as_uploaded_file(self):
         """Return the attachment converted to a Django UploadedFile"""
         if self['Content-Disposition'] is None:
             return None  # this part is not an attachment
