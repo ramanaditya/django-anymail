@@ -201,3 +201,26 @@ a `dict` of Postmark `delivery <http://developer.postmarkapp.com/developer-deliv
 or `open <http://developer.postmarkapp.com/developer-open-webhook.html>`_ webhook data.
 
 .. _Postmark account settings: https://account.postmarkapp.com/servers
+
+
+.. _postmark-inbound:
+
+Inbound webhook
+---------------
+
+If you want to receive email from Postmark through Anymail's normalized :ref:`inbound <inbound>`
+handling, follow Postmark's `Inbound Processing`_ guide to configure
+an inbound server pointing to Anymail's inbound webhook.
+
+The InboundHookUrl setting will be:
+
+   :samp:`https://{random}:{random}@{yoursite.example.com}/anymail/postmark/inbound/`
+
+     * *random:random* is an :setting:`ANYMAIL_WEBHOOK_AUTHORIZATION` shared secret
+     * *yoursite.example.com* is your Django site
+
+Anymail handles the "parse an email" part of Postmark's instructions for you, but you'll
+likely want to work through the other sections to set up a custom inbound domain, and
+perhaps configure inbound spam blocking.
+
+.. _Inbound Processing: https://postmarkapp.com/developer/user-guide/inbound

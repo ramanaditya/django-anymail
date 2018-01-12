@@ -48,6 +48,10 @@ Email Service Provider                        |Mailgun|   |Mailjet|   |Mandrill|
 ---------------------------------------------------------------------------------------------------------------------
 :attr:`~AnymailMessage.anymail_status`        Yes         Yes         Yes         Yes         Yes         Yes
 |AnymailTrackingEvent| from webhooks          Yes         Yes         Yes         Yes         Yes         Yes
+
+.. rubric:: :ref:`Inbound handling <inbound>`
+---------------------------------------------------------------------------------------------------------------------
+|AnymailInboundEvent| from webhooks           Yes         Yes         Yes         Yes         Yes         Yes
 ============================================  ==========  ==========  ==========  ==========  ==========  ===========
 
 
@@ -63,6 +67,7 @@ meaningless. (And even specific features don't matter if you don't plan to use t
 .. |SendGrid| replace:: :ref:`sendgrid-backend`
 .. |SparkPost| replace:: :ref:`sparkpost-backend`
 .. |AnymailTrackingEvent| replace:: :class:`~anymail.signals.AnymailTrackingEvent`
+.. |AnymailInboundEvent| replace:: :class:`~anymail.signals.AnymailInboundEvent`
 
 
 Other ESPs

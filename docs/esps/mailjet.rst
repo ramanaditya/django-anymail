@@ -249,3 +249,26 @@ for each event in the batch.)
 
 .. _Event tracking (triggers): https://app.mailjet.com/account/triggers
 .. _Mailjet event: https://dev.mailjet.com/guides/#events
+
+
+.. _mailjet-inbound:
+
+Inbound webhook
+---------------
+
+If you want to receive email from Mailjet through Anymail's normalized :ref:`inbound <inbound>`
+handling, follow Mailjet's `Parse API inbound emails`_ guide to set up Anymail's inbound webhook.
+
+The parseroute Url parameter will be:
+
+   :samp:`https://{random}:{random}@{yoursite.example.com}/anymail/mailjet/inbound/`
+
+     * *random:random* is an :setting:`ANYMAIL_WEBHOOK_AUTHORIZATION` shared secret
+     * *yoursite.example.com* is your Django site
+
+Once you've done Mailjet's "basic setup" to configure the Parse API webhook, you can skip
+ahead to the "use your own domain" section of their guide. (Anymail normalizes the inbound
+event for you, so you won't need to worry about Mailjet's event and attachment formats.)
+
+.. _Parse API inbound emails:
+    https://dev.mailjet.com/guides/#parse-api-inbound-emails

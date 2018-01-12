@@ -220,3 +220,23 @@ The esp_event is the raw, `wrapped json event structure`_ as provided by SparkPo
     https://support.sparkpost.com/customer/portal/articles/1976204-webhook-event-reference
 .. _wrapped json event structure:
     https://support.sparkpost.com/customer/en/portal/articles/2311698-comparing-webhook-and-message-event-data
+
+
+.. _sparkpost-inbound:
+
+Inbound webhook
+---------------
+
+If you want to receive email from SparkPost through Anymail's normalized :ref:`inbound <inbound>`
+handling, follow SparkPost's `Enabling Inbound Email Relaying`_ guide to set up
+Anymail's inbound webhook.
+
+The target parameter for the Relay Webhook will be:
+
+   :samp:`https://{random}:{random}@{yoursite.example.com}/anymail/sparkpost/inbound/`
+
+     * *random:random* is an :setting:`ANYMAIL_WEBHOOK_AUTHORIZATION` shared secret
+     * *yoursite.example.com* is your Django site
+
+.. _Enabling Inbound Email Relaying:
+   https://www.sparkpost.com/docs/tech-resources/inbound-email-relay-webhook/

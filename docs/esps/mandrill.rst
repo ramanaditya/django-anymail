@@ -239,6 +239,30 @@ for each event in the batch.)
     https://mandrill.zendesk.com/hc/en-us/articles/205583217-Introduction-to-Webhooks
 
 
+.. _mandrill-inbound:
+
+Inbound webhook
+---------------
+
+If you want to receive email from Mandrill through Anymail's normalized :ref:`inbound <inbound>`
+handling, follow Mandrill's `Inbound Email Processing Overview`_ to set up
+Anymail's inbound webhook.
+
+The url for the inbound route will be:
+
+   :samp:`https://{random}:{random}@{yoursite.example.com}/anymail/mandrill/inbound/`
+
+     * *random:random* is an :setting:`ANYMAIL_WEBHOOK_AUTHORIZATION` shared secret
+     * *yoursite.example.com* is your Django site
+
+(There may also be a "webhook authentication key" involved, as with :ref:`mandrill-webhooks` above.
+Mandrill's docs aren't exactly clear on this. If you've set up Anymail inbound with
+Mandrill, we'd appreciate any information that would improve this section.)
+
+.. _Inbound Email Processing Overview:
+   https://mandrill.zendesk.com/hc/en-us/articles/205583197-Inbound-Email-Processing-Overview
+
+
 .. _migrating-from-djrill:
 
 Migrating from Djrill
@@ -393,14 +417,17 @@ parameters is that most logging and analytics systems are aware of the
 need to keep auth secret.)
 
 Anymail replaces `djrill.signals.webhook_event` with
-`anymail.signals.tracking` for delivery tracking events.
-(It does not currently handle inbound message webhooks.)
+`anymail.signals.tracking` for delivery tracking events,
+and `anymail.signals.inbound` for inbound events.
 Anymail parses and normalizes
-the event data passed to the signal receiver: see :ref:`event-tracking`.
+the event data passed to the signal receiver: see :ref:`event-tracking`
+and :ref:`inbound`.
 
 The equivalent of Djrill's ``data`` parameter is available
 to your signal receiver as
 :attr:`event.esp_event <anymail.signals.AnymailTrackingEvent.esp_event>`,
 and for most events, the equivalent of Djrill's ``event_type`` parameter
 is `event.esp_event['event']`. But consider working with Anymail's
-normalized :class:`~anymail.signals.AnymailTrackingEvent` instead.
+normalized :class:`~anymail.signals.AnymailTrackingEvent` and
+:class:`~anymail.signals.AnymailInboundEvent` instead for easy portability
+to other ESPs.

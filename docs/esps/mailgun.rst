@@ -215,3 +215,36 @@ a Django :class:`~django.http.QueryDict` object of `Mailgun event fields`_.
 
 .. _Mailgun dashboard: https://mailgun.com/app/dashboard
 .. _Mailgun event fields: https://documentation.mailgun.com/user_manual.html#webhooks
+
+
+.. _mailgun-inbound:
+
+Inbound webhook
+---------------
+
+If you want to receive email from Mailgun through Anymail's normalized :ref:`inbound <inbound>`
+handling, follow Mailgun's `Receiving, Storing and Fowarding Messages`_ guide to set up
+an inbound route that forwards to Anymail's inbound webhook. (You can configure routes
+using Mailgun's API, or simply using the "Routes" tab in your `Mailgun dashboard`_.)
+
+The *action* for your route will be either:
+
+   :samp:`forward("https://{random}:{random}@{yoursite.example.com}/anymail/mailgun/inbound/")`
+   :samp:`forward("https://{random}:{random}@{yoursite.example.com}/anymail/mailgun/inbound_mime/")`
+
+     * *random:random* is an :setting:`ANYMAIL_WEBHOOK_AUTHORIZATION` shared secret
+     * *yoursite.example.com* is your Django site
+
+Anymail accepts either of Mailgun's "fully-parsed" (.../inbound/) and "raw MIME" (.../inbound_mime/)
+formats; the URL tells Mailgun which you want. Because Anymail handles parsing and normalizing the data,
+both are equally easy to use. The raw MIME option will give the most accurate representation of *any*
+received email (including complex forms like multi-message mailing list digests). The fully-parsed option
+*may* use less memory while processing messages with many large attachments.
+
+If you want to use Anymail's normalized :attr:`~anymail.inbound.AnymailInboundMessage.spam_detected` and
+:attr:`~anymail.inbound.AnymailInboundMessage.spam_score` attributes, you'll need to set your Mailgun
+domain's inbound spam filter to "Deliver spam, but add X-Mailgun-SFlag and X-Mailgun-SScore headers"
+(in the `Mailgun dashboard`_ on the "Domains" tab).
+
+.. _Receiving, Storing and Fowarding Messages:
+   https://documentation.mailgun.com/en/latest/user_manual.html#receiving-forwarding-and-storing-messages

@@ -37,6 +37,8 @@ built-in `django.core.mail` package. It includes:
 * Normalized sent-message status and tracking notification, by connecting
   your ESP's webhooks to Django signals
 * "Batch transactional" sends using your ESP's merge and template features
+* Inbound message support, to receive email through your ESP's webhooks,
+  with simplified, portable access to attachments and other inbound content
 
 Anymail is released under the BSD license. It is extensively tested against Django 1.8--2.0
 (including Python 2.7, Python 3 and PyPy).
@@ -67,6 +69,7 @@ Anymail 1-2-3
 
 .. This quickstart section is also included in docs/quickstart.rst
 
+Here's how to send a message.
 This example uses Mailgun, but you can substitute Mailjet or Postmark or SendGrid
 or SparkPost or any other supported ESP where you see "mailgun":
 
@@ -144,4 +147,5 @@ or SparkPost or any other supported ESP where you see "mailgun":
 
 
 See the `full documentation <https://anymail.readthedocs.io/en/stable/>`_
-for more features and options.
+for more features and options, including receiving messages and tracking
+sent message status.

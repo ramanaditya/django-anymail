@@ -1,12 +1,12 @@
-.. currentmodule:: anymail.signals
-
 .. _inbound:
 
 Receiving mail
 ==============
 
+.. versionadded:: 1.3
+
 For ESPs that support receiving inbound email, Anymail offers normalized handling
-of the inbound events.
+of inbound events.
 
 If you didn't set up webhooks when first installing Anymail, you'll need to
 :ref:`configure webhooks <webhooks-configuration>` to get started with inbound email.
@@ -57,15 +57,23 @@ invoke your signal receiver once, separately, for each message in the batch.
       reflect when the message was sent.
 
     * Inbound attachments have the same security concerns as user-uploaded files.
-      If you process inbound attachments, you'll need to verify that the actual
+      If you process inbound attachments, you'll need to verify that the
       attachment content is valid.
 
       This is particularly important if you publish the attachment content
       through your app. For example, an "image" attachment could actually contain an
       executable file or raw HTML. You wouldn't want to serve that as a user's avatar.
 
+      It's *not* sufficient to check the attachment's content-type or
+      filename extension---senders can falsify both of those.
+      Consider `using python-magic`_ or a similar approach
+      to validate the *actual attachment content*.
+
     The Django docs have additional notes on
     :ref:`user-supplied content security <django:user-uploaded-content-security>`.
+
+.. _using python-magic:
+   http://blog.hayleyanderson.us/2015/07/18/validating-file-types-in-django/
 
 
 .. _inbound-event:
@@ -73,7 +81,7 @@ invoke your signal receiver once, separately, for each message in the batch.
 Normalized inbound event
 ------------------------
 
-.. class:: AnymailInboundEvent
+.. class:: anymail.signals.AnymailInboundEvent
 
     The `event` parameter to Anymail's `inbound`
     :ref:`signal receiver <inbound-signal-receivers>` is an object
@@ -93,9 +101,11 @@ Normalized inbound event
     .. attribute:: timestamp
 
         A `~datetime.datetime` indicating when the inbound event was generated
-        by the ESP. This is typically when the ESP received the message or shortly
-        thereafter. (Use :attr:`AnymailInboundMessage.date` if you're interested
-        in when the message was sent.)
+        by the ESP, if available; otherwise `None`. (Very few ESPs provide this info.)
+
+        This is typically when the ESP received the message or shortly
+        thereafter. (Use :attr:`event.message.date <anymail.inbound.AnymailInboundMessage.date>`
+        if you're interested in when the message was sent.)
 
         (The timestamp's timezone is often UTC, but the exact behavior depends
         on your ESP and account settings. Anymail ensures that this value is
@@ -104,8 +114,11 @@ Normalized inbound event
     .. attribute:: event_id
 
         A `str` unique identifier for the event, if available; otherwise `None`.
-        Can be used to avoid processing the same event twice. Exact format varies
-        by ESP, and not all ESPs provide an event_id for inbound messages.
+        Can be used to avoid processing the same event twice. The exact format varies
+        by ESP, and very few ESPs provide an event_id for inbound messages.
+
+        An alternative approach to avoiding duplicate processing is to use the
+        inbound message's :mailheader:`Message-ID` header (``event.message['Message-ID']``).
 
     .. attribute:: esp_event
 
@@ -116,8 +129,6 @@ Normalized inbound event
         This gives you (non-portable) access to original event provided by your ESP,
         which can be helpful if you need to access data Anymail doesn't normalize.
 
-
-.. currentmodule:: anymail.inbound
 
 .. _inbound-message:
 
@@ -202,8 +213,10 @@ Normalized inbound message
         indicated that it had no timezone information available.
 
         The Date header is the sender's claim about when it sent the message, which isn't
-        necessarily accurate. (Use :attr:`AnymailInboundEvent.timestamp`
-        if you need to know when the message was received at your ESP.)
+        necessarily accurate. (If you need to know when the message was received at your ESP,
+        that might be available in :attr:`event.timestamp <anymail.signals.AnymailInboundEvent.timestamp>`.
+        If not, you'd need to parse the messages's :mailheader:`Received` headers,
+        which can be non-trivial.)
 
     .. attribute:: text
 
@@ -228,6 +241,31 @@ Normalized inbound message
         ``message.inline_attachments["abc123..."]``.
 
         The content of each attachment is described in :ref:`inbound-attachments` below.
+
+    .. attribute:: spam_score
+
+        A `float` spam score (usually from SpamAssassin) if your ESP provides it; otherwise `None`.
+        The range of values varies by ESP and spam-filtering configuration, so you may need to
+        experiment to find a useful threshold.
+
+    .. attribute:: spam_detected
+
+        If your ESP provides a simple yes/no spam determination, a `bool` indicating whether the
+        ESP thinks the inbound message is probably spam. Otherwise `None`. (Most ESPs just assign
+        a :attr:`spam_score` and leave its interpretation up to you.)
+
+    .. attribute:: stripped_text
+
+        If provided by your ESP, a simplified version the inbound message's plaintext body;
+        otherwise `None`.
+
+        What exactly gets "stripped" varies by ESP, but it often omits quoted replies
+        and sometimes signature blocks. (And ESPs who do offer stripped bodies
+        usually consider the feature experimental.)
+
+    .. attribute:: stripped_html
+
+        Like :attr:`stripped_text`, but for the HTML body. (Very few ESPs support this.)
 
     .. rubric:: Other headers, complex messages, etc.
 
@@ -261,6 +299,24 @@ The attachment objects in an AnymailInboundMessage's
 have these methods:
 
 .. class:: AnymailInboundMessage
+
+    .. method:: as_file()
+
+        Returns the attachment converted to a Django :class:`~django.core.files.uploadedfile.UploadedFile`
+        object. This is suitable for assigning to a model's :class:`~django.db.models.FileField`
+        or :class:`~django.db.models.ImageField`:
+
+        .. code-block:: python
+
+            # allow users to mail in jpeg attachments to set their profile avatars...
+            if attachment.get_content_type() == "image/jpeg":
+                # for security, you must verify the content is really a jpeg
+                # (you'll need to supply the is_valid_jpeg function)
+                if is_valid_jpeg(attachment.get_content_bytes()):
+                    user.profile.avatar_image = attachment.as_file()
+
+        See Django's docs on :doc:`django:topics/files` for more information
+        on working with uploaded files.
 
     .. method:: get_content_type()
     .. method:: get_content_maintype()
@@ -302,36 +358,20 @@ have these methods:
 
         Returns the lowercased value (without parameters) of the attachment's
         :mailheader:`Content-Disposition` header. The return value should be either "inline"
-        or "attachment", or `None` if the attachment is missing that header.
+        or "attachment", or `None` if the attachment is somehow missing that header.
 
-        (Anymail back-ports Python 3.5's :meth:`~email.message.Message.get_filename` method
-        to all supported versions.)
+        (Anymail back-ports Python 3.5's :meth:`~email.message.Message.get_content_disposition`
+        method to all supported versions.)
 
     .. method:: get_content_text(charset='utf-8')
 
         Returns the content of the attachment decoded to a `str` in the given charset.
+        (This is generally only appropriate for text or message-type attachments.)
 
     .. method:: get_content_bytes()
 
-        Returns the raw content of the attachment as bytes.
-
-    .. method:: as_file()
-
-        Returns the attachment converted to a Django :class:`~django.core.files.uploadedfile.UploadedFile`
-        object. This is suitable for assigning to a model's :class:`~django.db.models.FileField`
-        or :class:`~django.db.models.ImageField`:
-
-        .. code-block:: python
-
-            # allow users to mail in jpeg attachments to set their profile avatars...
-            if attachment.get_content_type() == "image/jpeg":
-                # for security, you must verify the content is really a jpeg
-                # (you'll need to supply the is_valid_jpeg function)
-                if is_valid_jpeg(attachment.get_content_bytes()):
-                    user.profile.avatar_image = attachment.as_file()
-
-        See Django's docs on :doc:`django:topics/files` for more information
-        on working with uploaded files.
+        Returns the raw content of the attachment as bytes. (This will automatically decode
+        any base64-encoded attachment data.)
 
     .. rubric:: Complex attachments
 

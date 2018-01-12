@@ -168,9 +168,9 @@ If you want to use Anymail's inbound or tracking webhooks:
        or "inbound" for receiving email
 
    Some ESPs support different webhooks for different tracking events. You can
-   usually enter the same Anymail webhook URL for all of them (or all that you
-   want to receive). But be sure to check the specific details for your ESP
-   under :ref:`supported-esps`.
+   usually enter the same Anymail *tracking* webhook URL for all of them (or all that you
+   want to receive)---but be sure to use the separate *inbound* URL for inbound webhooks.
+   And always check the specific details for your ESP under :ref:`supported-esps`.
 
    Also, some ESPs try to validate the webhook URL immediately when you enter it.
    If so, you'll need to deploy your Django project to your live server before you
