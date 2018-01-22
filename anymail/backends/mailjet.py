@@ -1,6 +1,8 @@
+from requests.structures import CaseInsensitiveDict
+
 from ..exceptions import AnymailRequestsAPIError
-from ..message import AnymailRecipientStatus, ANYMAIL_STATUSES
-from ..utils import get_anymail_setting, EmailAddress, parse_address_list
+from ..message import AnymailRecipientStatus
+from ..utils import get_anymail_setting, parse_address_list
 
 from .base_requests import AnymailRequestsBackend, RequestsPayload
 
@@ -18,7 +20,7 @@ class EmailBackend(AnymailRequestsBackend):
         self.api_key = get_anymail_setting('api_key', esp_name=esp_name, kwargs=kwargs, allow_bare=True)
         self.secret_key = get_anymail_setting('secret_key', esp_name=esp_name, kwargs=kwargs, allow_bare=True)
         api_url = get_anymail_setting('api_url', esp_name=esp_name, kwargs=kwargs,
-                                      default="https://api.mailjet.com/v3")
+                                      default="https://api.mailjet.com/v3.1/")
         if not api_url.endswith("/"):
             api_url += "/"
         super(EmailBackend, self).__init__(api_url, **kwargs)
@@ -27,46 +29,38 @@ class EmailBackend(AnymailRequestsBackend):
         return MailjetPayload(message, defaults, self)
 
     def raise_for_status(self, response, payload, message):
-        # Improve Mailjet's (lack of) error message for bad API key
-        if response.status_code == 401 and not response.content:
-            raise AnymailRequestsAPIError(
-                "Invalid Mailjet API key or secret",
-                email_message=message, payload=payload, response=response, backend=self)
+        if 400 <= response.status_code <= 499:
+            # Mailjet uses 4xx status codes for partial failure in batch send;
+            # we'll determine how to handle below in parse_recipient_status.
+            return
         super(EmailBackend, self).raise_for_status(response, payload, message)
 
     def parse_recipient_status(self, response, payload, message):
-        # Mailjet's (v3.0) transactional send API is not covered in their reference docs.
-        # The response appears to be either:
-        #   {"Sent": [{"Email": ..., "MessageID": ...}, ...]}
-        #   where only successful recipients are included
-        # or if the entire call has failed:
-        #   {"ErrorCode": nnn, "Message": ...}
         parsed_response = self.deserialize_json_response(response, payload, message)
+
+        # Global error? (no messages sent)
         if "ErrorCode" in parsed_response:
-            raise AnymailRequestsAPIError(email_message=message, payload=payload, response=response,
-                                          backend=self)
+            raise AnymailRequestsAPIError(email_message=message, payload=payload, response=response, backend=self)
 
         recipient_status = {}
         try:
-            for key in parsed_response:
-                status = key.lower()
-                if status not in ANYMAIL_STATUSES:
-                    status = 'unknown'
-
-                for item in parsed_response[key]:
-                    message_id = str(item['MessageID'])
-                    email = item['Email']
+            for result in parsed_response["Messages"]:
+                status = 'sent' if result["Status"] == 'success' else 'failed'  # Status is 'success' or 'error'
+                recipients = result.get("To", []) + result.get("Cc", []) + result.get("Bcc", [])
+                for recipient in recipients:
+                    email = recipient['Email']
+                    message_id = str(recipient['MessageID'])  # MessageUUID isn't yet useful for other Mailjet APIs
                     recipient_status[email] = AnymailRecipientStatus(message_id=message_id, status=status)
+                # Note that for errors, Mailjet doesn't identify the problem recipients.
+                # This can occur with a batch send. We patch up the missing recipients below.
         except (KeyError, TypeError):
             raise AnymailRequestsAPIError("Invalid Mailjet API response format",
-                                          email_message=message, payload=payload, response=response,
-                                          backend=self)
-        # Make sure we ended up with a status for every original recipient
-        # (Mailjet only communicates "Sent")
-        for recipients in payload.recipients.values():
-            for email in recipients:
-                if email.addr_spec not in recipient_status:
-                    recipient_status[email.addr_spec] = AnymailRecipientStatus(message_id=None, status='unknown')
+                                          email_message=message, payload=payload, response=response, backend=self)
+
+        # Any recipient who wasn't reported as a 'success' must have been an error:
+        for email in payload.recipients:
+            if email.addr_spec not in recipient_status:
+                recipient_status[email.addr_spec] = AnymailRecipientStatus(message_id=None, status='failed')
 
         return recipient_status
 
@@ -79,9 +73,8 @@ class MailjetPayload(RequestsPayload):
         http_headers = {
             'Content-Type': 'application/json',
         }
-        # Late binding of recipients and their variables
-        self.recipients = {}
-        self.merge_data = None
+        self.merge_data = None  # late-bound in _expand_merge_data if present
+        self.recipients = []  # for backend parse_recipient_status
         super(MailjetPayload, self).__init__(message, defaults, backend,
                                              auth=auth, headers=http_headers, *args, **kwargs)
 
@@ -89,173 +82,148 @@ class MailjetPayload(RequestsPayload):
         return "send"
 
     def serialize_data(self):
-        self._finish_recipients()
-        self._populate_sender_from_template()
-        return self.serialize_json(self.data)
+        headers = self.data["Headers"]
+        if "Reply-To" in headers:
+            # Reply-To must be in its own param
+            reply_to = headers.pop('Reply-To')
+            self.set_reply_to(parse_address_list([reply_to]))
+        if len(headers) > 0:
+            self.data["Headers"] = dict(headers)  # flatten to normal dict for json serialization
+        else:
+            del self.data["Headers"]  # don't send empty headers
+
+        sandbox_mode = self.data.pop("SandboxMode", None)  # hoist to payload root
+        payload = {"Messages": [self.data]}
+        if sandbox_mode is not None:
+            payload["SandboxMode"] = sandbox_mode
+        if self.merge_data is not None:
+            payload = {"Messages": self._expand_merge_data()}
+
+        return self.serialize_json(payload)
 
     #
     # Payload construction
     #
 
-    def _finish_recipients(self):
-        # NOTE do not set both To and Recipients, it behaves specially: each
-        # recipient receives a separate mail but the To address receives one
-        # listing all recipients.
-        if "cc" in self.recipients or "bcc" in self.recipients:
-            self._finish_recipients_single()
-        else:
-            self._finish_recipients_with_vars()
-
-    def _populate_sender_from_template(self):
-        # If no From address was given, use the address from the template.
-        # Unfortunately, API 3.0 requires the From address to be given, so let's
-        # query it when needed. This will supposedly be fixed in 3.1 with a
-        # public beta in May 2017.
-        template_id = self.data.get("Mj-TemplateID")
-        if template_id and not self.data.get("FromEmail"):
-            response = self.backend.session.get(
-                "%sREST/template/%s/detailcontent" % (self.backend.api_url, template_id),
-                auth=self.auth, timeout=self.backend.timeout
-            )
-            self.backend.raise_for_status(response, None, self.message)
-            json_response = self.backend.deserialize_json_response(response, None, self.message)
-            # Populate email address header from template.
-            try:
-                headers = json_response["Data"][0]["Headers"]
-                if "From" in headers:
-                    # Workaround Mailjet returning malformed From header
-                    # if there's a comma in the template's From display-name:
-                    from_email = headers["From"].replace(",", "||COMMA||")
-                    parsed = parse_address_list([from_email])[0]
-                    if parsed.display_name:
-                        parsed = EmailAddress(parsed.display_name.replace("||COMMA||", ","),
-                                              parsed.addr_spec)
-                else:
-                    parsed = EmailAddress(headers["SenderName"], headers["SenderEmail"])
-            except KeyError:
-                raise AnymailRequestsAPIError("Invalid Mailjet template API response",
-                                              email_message=self.message, response=response, backend=self.backend)
-            self.set_from_email(parsed)
-
-    def _finish_recipients_with_vars(self):
-        """Send bulk mail with different variables for each mail."""
-        assert "Cc" not in self.data and "Bcc" not in self.data
-        recipients = []
-        merge_data = self.merge_data or {}
-        for email in self.recipients["to"]:
-            recipient = {
-                "Email": email.addr_spec,
-                "Name": email.display_name,
-                "Vars": merge_data.get(email.addr_spec)
-            }
-            # Strip out empty Name and Vars
-            recipient = {k: v for k, v in recipient.items() if v}
-            recipients.append(recipient)
-        self.data["Recipients"] = recipients
-
-    def _finish_recipients_single(self):
-        """Send a single mail with some To, Cc and Bcc headers."""
-        assert "Recipients" not in self.data
-        if self.merge_data:
-            # When Cc and Bcc headers are given, then merge data cannot be set.
-            raise NotImplementedError("Cannot set merge data with bcc/cc")
-        for recipient_type, emails in self.recipients.items():
-            # Workaround Mailjet 3.0 bug parsing display-name with commas
-            # (see test_comma_in_display_name in test_mailjet_backend for details)
-            formatted_emails = [
-                email.address if "," not in email.display_name
-                # else name has a comma, so force it into MIME encoded-word utf-8 syntax:
-                else EmailAddress(email.display_name.encode('utf-8'), email.addr_spec).formataddr('utf-8')
-                for email in emails
-            ]
-            self.data[recipient_type.capitalize()] = ", ".join(formatted_emails)
-
     def init_payload(self):
+        # the single Messages item, or base to be replicated for merge/batch:
         self.data = {
+            "Headers": CaseInsensitiveDict()
         }
 
-    def set_from_email(self, email):
-        self.data["FromEmail"] = email.addr_spec
+    def _expand_merge_data(self):
+        """Send bulk mail with different variables for each mail."""
+        messages = []
+        self.data.setdefault("Variables", {})  # might already have global_merge_data
+        for to in self.data.pop("To", []):
+            email = to["Email"]
+            data = self.data.copy()  # careful: not a deep copy
+            data["To"] = [to]
+            if email in self.merge_data:
+                variables = data["Variables"].copy()  # don't modify the globals
+                variables.update(self.merge_data[email])
+                data["Variables"] = self._strip_none(variables)
+            messages.append(data)
+        return messages
+
+    @staticmethod
+    def _mailjet_email(email):
+        """Expand an Anymail EmailAddress into Mailjet's {"Email", "Name"} dict"""
+        # Not documented, but Mailjet seems to allow "", None (json null), or just omitting missing Name
+        result = {"Email": email.addr_spec}
         if email.display_name:
-            self.data["FromName"] = email.display_name
+            result["Name"] = email.display_name
+        return result
+
+    @staticmethod
+    def _strip_none(variables):
+        """Return dict `variables` omitting any keys with `None` value"""
+        # Works around an Mailjet API bug where a null personalization variable results in a message
+        # that appears to succeed (with a MessageHref and everything), but never actually gets sent.
+        # (Reported to Mailjet ticket #830569 1/2018)
+        return {key: value for key, value in variables.items() if value is not None}
+
+    def set_from_email(self, email):
+        self.data["From"] = self._mailjet_email(email)
 
     def set_recipients(self, recipient_type, emails):
         assert recipient_type in ["to", "cc", "bcc"]
-        # Will be handled later in serialize_data
-        if emails:
-            self.recipients[recipient_type] = emails
+        if len(emails) > 0:
+            self.data[recipient_type.title()] = [self._mailjet_email(email) for email in emails]
+            self.recipients += emails
 
     def set_subject(self, subject):
         self.data["Subject"] = subject
 
     def set_reply_to(self, emails):
-        headers = self.data.setdefault("Headers", {})
-        if emails:
-            headers["Reply-To"] = ", ".join([str(email) for email in emails])
-        elif "Reply-To" in headers:
-            del headers["Reply-To"]
+        if len(emails) > 0:
+            self.data["ReplyTo"] = self._mailjet_email(emails[0])
+            if len(emails) > 1:
+                self.unsupported_feature("Multiple reply_to addresses")
 
     def set_extra_headers(self, headers):
-        self.data.setdefault("Headers", {}).update(headers)
+        self.data["Headers"].update(headers)
 
     def set_text_body(self, body):
-        self.data["Text-part"] = body
+        if body:  # Django's default empty text body confuses Mailjet (esp. templates)
+            self.data["TextPart"] = body
 
     def set_html_body(self, body):
-        if "Html-part" in self.data:
-            # second html body could show up through multiple alternatives, or html body + alternative
-            self.unsupported_feature("multiple html parts")
+        if body is not None:
+            if "HTMLPart" in self.data:
+                # second html body could show up through multiple alternatives, or html body + alternative
+                self.unsupported_feature("multiple html parts")
 
-        self.data["Html-part"] = body
+            self.data["HTMLPart"] = body
 
     def add_attachment(self, attachment):
+        att = {
+            "ContentType": attachment.mimetype,
+            "Filename": attachment.name or "",
+            "Base64Content": attachment.b64content,
+        }
         if attachment.inline:
-            field = "Inline_attachments"
-            name = attachment.cid
+            field = "InlinedAttachments"
+            att["ContentID"] = attachment.cid
         else:
             field = "Attachments"
-            name = attachment.name or ""
-        self.data.setdefault(field, []).append({
-            "Content-type": attachment.mimetype,
-            "Filename": name,
-            "content": attachment.b64content
-        })
+        self.data.setdefault(field, []).append(att)
 
     def set_envelope_sender(self, email):
         self.data["Sender"] = email.addr_spec  # ??? v3 docs unclear
 
     def set_metadata(self, metadata):
         # Mailjet expects a single string payload
-        self.data["Mj-EventPayLoad"] = self.serialize_json(metadata)
+        self.data["EventPayload"] = self.serialize_json(metadata)
 
     def set_tags(self, tags):
         # The choices here are CustomID or Campaign, and Campaign seems closer
         # to how "tags" are handled by other ESPs -- e.g., you can view dashboard
         # statistics across all messages with the same Campaign.
         if len(tags) > 0:
-            self.data["Tag"] = tags[0]
-            self.data["Mj-campaign"] = tags[0]
+            self.data["CustomCampaign"] = tags[0]
             if len(tags) > 1:
                 self.unsupported_feature('multiple tags (%r)' % tags)
 
     def set_track_clicks(self, track_clicks):
-        # 1 disables tracking, 2 enables tracking
-        self.data["Mj-trackclick"] = 2 if track_clicks else 1
+        self.data["TrackClicks"] = "enabled" if track_clicks else "disabled"
 
     def set_track_opens(self, track_opens):
-        # 1 disables tracking, 2 enables tracking
-        self.data["Mj-trackopen"] = 2 if track_opens else 1
+        self.data["TrackOpens"] = "enabled" if track_opens else "disabled"
 
     def set_template_id(self, template_id):
-        self.data["Mj-TemplateID"] = template_id
-        self.data["Mj-TemplateLanguage"] = True
+        self.data["TemplateID"] = int(template_id)  # Mailjet requires integer (not string)
+        self.data["TemplateLanguage"] = True
 
     def set_merge_data(self, merge_data):
         # Will be handled later in serialize_data
         self.merge_data = merge_data
 
     def set_merge_global_data(self, merge_global_data):
-        self.data["Vars"] = merge_global_data
+        self.data["Variables"] = self._strip_none(merge_global_data)
 
     def set_esp_extra(self, extra):
+        # extra gets merged into the payload at the "Messages" item level
+        # (and will get replicated for each recipient in a batch send).
+        # (But note special handling for SandboxMode in serialize_data.)
         self.data.update(extra)

@@ -3,23 +3,20 @@
 Mailjet
 =======
 
-Anymail integrates with the `Mailjet`_ email service, using their transactional `Send API`_ (v3).
+Anymail integrates with the `Mailjet`_ email service, using their transactional `Send API v3.1`_.
 
 .. versionadded:: 0.11
 
-.. _mailjet-v31-api:
+.. versionchanged:: 2.0
 
-.. note::
-
-    Mailjet is developing an improved `v3.1 Send API`_ (in public beta as of mid-2017).
-    Once the v3.1 API is released, Anymail will switch to it. This change should be
-    largely transparent to your code, unless you are using Anymail's
+    Earlier Anymail versions used Mailjet's older `Send API v3`_. The change to v3.1 fixes
+    some limitations of the earlier API, and should only affect your code if you use Anymail's
     :ref:`esp_extra <mailjet-esp-extra>` feature to set API-specific options.
 
 
 .. _Mailjet: https://www.mailjet.com/
-.. _Send API: https://dev.mailjet.com/guides/#choose-sending-method
-.. _v3.1 Send API: https://dev.mailjet.com/guides/#send-api-v3-1-beta
+.. _Send API v3.1: https://dev.mailjet.com/guides/#send-api-v3-1
+.. _Send API v3: https://dev.mailjet.com/guides/#send-api-v3
 
 
 Settings
@@ -68,9 +65,8 @@ nor ``ANYMAIL_MAILJET_API_KEY`` is set.
 
 The base url for calling the Mailjet API.
 
-The default is ``MAILJET_API_URL = "https://api.mailjet.com/v3"``
-(It's unlikely you would need to change this. This setting cannot be used
-to opt into a newer API version; the parameters are not backwards compatible.)
+The default is ``MAILJET_API_URL = "https://api.mailjet.com/v3.1/"``
+(It's unlikely you would need to change this.)
 
 
 .. _mailjet-esp-extra:
@@ -80,24 +76,20 @@ esp_extra support
 
 To use Mailjet features not directly supported by Anymail, you can
 set a message's :attr:`~anymail.message.AnymailMessage.esp_extra` to
-a `dict` of Mailjet's `Send API json properties`_.
-Your :attr:`esp_extra` dict will be merged into the
+a `dict` of Mailjet's `Send API message json properties`_.
+Your :attr:`esp_extra` dict will be merged into the message
 parameters Anymail has constructed for the send, with `esp_extra`
 having precedence in conflicts.
-
-.. note::
-
-    Any ``esp_extra`` settings will need to be updated when Anymail changes
-    to use Mailjet's upcoming v3.1 API. (See :ref:`note above <mailjet-v31-api>`.)
 
 Example:
 
     .. code-block:: python
 
         message.esp_extra = {
-            # Mailjet v3.0 Send API options:
-            "Mj-prio": 3,  # Use Mailjet critically-high priority queue
-            "Mj-CustomID": my_event_tracking_id,
+            # Some Mailjet v3.1 Send API message options:
+            "Priority": 3,  # Use Mailjet critically-high priority queue
+            "CustomID": my_event_tracking_id,
+            "TemplateErrorReporting": "dev+mailtemplatebug@example.com",
         }
 
 
@@ -106,12 +98,19 @@ Example:
 messages.)
 
 
-.. _Send API json properties: https://dev.mailjet.com/guides/#send-api-json-properties
+.. _Send API message json properties:
+   https://dev.mailjet.com/guides/#send-api-json-properties
 
 
 
 Limitations and quirks
 ----------------------
+
+**Single reply_to**
+  Mailjet's API only supports a single Reply-To email address. If your message
+  has two or more, you'll get an :exc:`~anymail.exceptions.AnymailUnsupportedFeature`
+  error---or if you've enabled :setting:`ANYMAIL_IGNORE_UNSUPPORTED_FEATURES`,
+  Anymail will use only the first `reply_to` address.
 
 **Single tag**
   Anymail uses Mailjet's `campaign`_ option for tags, and Mailjet allows
@@ -131,27 +130,20 @@ Limitations and quirks
   Mailjet, but this may result in an API error if you have not received
   special approval from Mailjet support to use custom senders.
 
-**Commas in recipient names**
-  Mailjet's v3 API does not properly handle commas in recipient display-names
-  *if* your message also uses the ``cc`` or ``bcc`` fields.
-  (Tested July, 2017, and confirmed with Mailjet API support.)
+**message_id is MessageID (not MessageUUID)**
+  Mailjet's Send API v3.1 returns both a "legacy" MessageID and a newer
+  MessageUUID for each successfully sent message. Anymail uses the MessageID
+  as the :attr:`~anymail.message.AnymailStatus.message_id` when reporting
+  :ref:`esp-send-status`, because Mailjet's other (statistics, event tracking)
+  APIs don't yet support MessageUUID.
 
-  If your message would be affected, Anymail attempts to work around
-  the problem by switching to `MIME encoded-word`_ syntax where needed.
 
-  Most modern email clients should support this syntax, but if you run
-  into issues either avoid using ``cc`` and ``bcc``, or strip commas from all
-  recipient names (in ``to``, ``cc``, *and* ``bcc``) before sending.
+.. versionchanged:: 2.0
 
-.. _MIME encoded-word: https://en.wikipedia.org/wiki/MIME#Encoded-Word
-
-**Merge data not compatible with cc/bcc**
-  Mailjet's v3 API is not capable of representing both ``cc`` or ``bcc`` fields
-  and :attr:`~anymail.message.AnymailMessage.merge_data` in the same message.
-  If you attempt to combine them, Anymail will raise an error at send time.
-
-(The latter two limitations should be resolved in a future release when
-Anymail :ref:`switches <mailjet-v31-api>` to Mailjet's upcoming v3.1 API.)
+    Earlier Anymail versions used Mailjet's older v3 API, which had problems
+    with commas in recipient display names, and which didn't support cc or
+    bcc when using :attr:`~anymail.message.AnymailMessage.merge_data`. These
+    limitations have been removed in Mailjet's newer v3.1 API.
 
 
 .. _mailjet-templates:
@@ -161,6 +153,17 @@ Batch sending/merge and ESP templates
 
 Mailjet offers both :ref:`ESP stored templates <esp-stored-templates>`
 and :ref:`batch sending <batch-send>` with per-recipient merge data.
+
+When you send a message with multiple ``to`` addresses, the
+:attr:`~anymail.message.AnymailMessage.merge_data` determines how many
+distinct messages are sent:
+
+* If :attr:`~anymail.message.AnymailMessage.merge_data` is *not* set (the default),
+  Anymail will tell Mailjet to send a single message, and all recipients will see
+  the complete list of To addresses.
+* If :attr:`~anymail.message.AnymailMessage.merge_data` *is* set---even to an empty
+  `{}` dict, Anymail will tell Mailjet to send a separate message for each ``to``
+  address, and the recipients won't see the other To addresses.
 
 You can use a Mailjet stored transactional template by setting a message's
 :attr:`~anymail.message.AnymailMessage.template_id` to the
