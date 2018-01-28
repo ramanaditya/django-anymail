@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 # noinspection PyUnresolvedReferences
 from six.moves.urllib.parse import urljoin
+from textwrap import dedent
 
 import hashlib
 import hmac
@@ -9,7 +10,7 @@ from base64 import b64encode
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from django.utils.timezone import utc
-from mock import ANY
+from mock import ANY, patch
 
 from anymail.signals import AnymailTrackingEvent
 from anymail.webhooks.mandrill import MandrillTrackingWebhookView
@@ -247,3 +248,78 @@ class MandrillTrackingTestCase(WebhookTestCase):
         self.assertEqual(event.event_type, "unknown")
         self.assertEqual(event.recipient, "recipient@example.com")
         self.assertEqual(event.description, "manual edit")
+
+
+@override_settings(ANYMAIL_MANDRILL_WEBHOOK_KEY=TEST_WEBHOOK_KEY)
+class MandrillAutmaticTestCase(WebhookTestCase):
+
+    def test_head_request(self):
+        # Mandrill verifies webhooks at config time with a HEAD request
+        response = self.client.head('/anymail/mandrill/')
+        self.assertEqual(response.status_code, 200)
+
+    @patch("anymail.webhooks.mandrill.MandrillTrackingWebhookView.esp_to_anymail_event")
+    def test_rerouting_hard_bounce(self, esp_to_anymail_event):
+        # MandrillAutomaticWebhookView should utilize MandrillTrackingWebhookView for tracking requests
+        raw_events = [{
+            "event": "hard_bounce",
+            "msg": {
+                "ts": 1461095211,  # time send called
+                "subject": "Webhook Test",
+                "email": "bounce@example.com",
+                "sender": "sender@example.com",
+                "bounce_description": "bad_mailbox",
+                "bgtools_code": 10,
+                "diag": "smtp;550 5.1.1 The email account that you tried to reach does not exist.",
+                "_id": "abcdef012345789abcdef012345789"
+            },
+            "_id": "abcdef012345789abcdef012345789",
+            "ts": 1461095246  # time of event
+        }]
+        response = self.client.post(**mandrill_args(events=raw_events, path='/anymail/mandrill/'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(esp_to_anymail_event.called)
+
+    @patch("anymail.webhooks.mandrill.MandrillInboundWebhookView.esp_to_anymail_event")
+    def test_rerouting_tracking(self, esp_to_anymail_event):
+        # MandrillAutomaticWebhookView should utilize MandrillTrackingWebhookView for inbound requests
+        raw_event = {
+            "event": "inbound",
+            "ts": 1507856722,
+            "msg": {
+                "raw_msg": dedent("""\
+                    From: A tester <test@example.org>
+                    Date: Thu, 12 Oct 2017 18:03:30 -0700
+                    Message-ID: <CAEPk3RKEx@mail.example.org>
+                    Subject: Test subject
+                    To: "Test, Inbound" <test@inbound.example.com>, other@example.com
+                    MIME-Version: 1.0
+                    Content-Type: multipart/alternative; boundary="94eb2c05e174adb140055b6339c5"
+
+                    --94eb2c05e174adb140055b6339c5
+                    Content-Type: text/plain; charset="UTF-8"
+                    Content-Transfer-Encoding: quoted-printable
+
+                    It's a body=E2=80=A6
+
+                    --94eb2c05e174adb140055b6339c5
+                    Content-Type: text/html; charset="UTF-8"
+                    Content-Transfer-Encoding: quoted-printable
+
+                    <div dir=3D"ltr">It's a body=E2=80=A6</div>
+
+                    --94eb2c05e174adb140055b6339c5--
+                    """),
+                "email": "delivered-to@example.com",
+                "sender": None,  # Mandrill populates "sender" only for outbound message events
+                "spam_report": {
+                    "score": 1.7,
+                },
+                # Anymail ignores Mandrill's other inbound event fields
+                # (which are all redundant with raw_msg)
+            },
+        }
+
+        response = self.client.post(**mandrill_args(events=[raw_event], path='/anymail/mandrill/'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(esp_to_anymail_event.called)

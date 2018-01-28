@@ -2,7 +2,7 @@ from django.conf.urls import url
 
 from .webhooks.mailgun import MailgunInboundWebhookView, MailgunTrackingWebhookView
 from .webhooks.mailjet import MailjetInboundWebhookView, MailjetTrackingWebhookView
-from .webhooks.mandrill import MandrillInboundWebhookView, MandrillTrackingWebhookView
+from .webhooks.mandrill import MandrillInboundWebhookView, MandrillTrackingWebhookView, MandrillAutomaticWebhookView
 from .webhooks.postmark import PostmarkInboundWebhookView, PostmarkTrackingWebhookView
 from .webhooks.sendgrid import SendGridInboundWebhookView, SendGridTrackingWebhookView
 from .webhooks.sparkpost import SparkPostInboundWebhookView, SparkPostTrackingWebhookView
@@ -23,4 +23,6 @@ urlpatterns = [
     url(r'^postmark/tracking/$', PostmarkTrackingWebhookView.as_view(), name='postmark_tracking_webhook'),
     url(r'^sendgrid/tracking/$', SendGridTrackingWebhookView.as_view(), name='sendgrid_tracking_webhook'),
     url(r'^sparkpost/tracking/$', SparkPostTrackingWebhookView.as_view(), name='sparkpost_tracking_webhook'),
+
+    url(r'^mandrill/$', MandrillAutomaticWebhookView.as_view(), name='mandrill_automatic_webhook'),
 ]

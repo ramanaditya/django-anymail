@@ -263,6 +263,22 @@ Mandrill, we'd appreciate any information that would improve this section.)
    https://mandrill.zendesk.com/hc/en-us/articles/205583197-Inbound-Email-Processing-Overview
 
 
+.. _mandrill-combined:
+
+Combined webhook
+----------------
+
+Some Mandrill users will have combined webhooks configured which use the same `MANDRILL_WEBHOOK_KEY`
+and `MANDRILL_WEBHOOK_URL` to receive email and tracking events.
+
+The url for the combined routing will be:
+
+   :samp:`https://{random}:{random}@{yoursite.example.com}/anymail/mandrill/`
+
+     * *random:random* is an :setting:`ANYMAIL_WEBHOOK_AUTHORIZATION` shared secret
+     * *yoursite.example.com* is your Django site
+
+
 .. _migrating-from-djrill:
 
 Migrating from Djrill

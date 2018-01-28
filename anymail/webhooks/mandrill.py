@@ -184,3 +184,18 @@ class MandrillInboundWebhookView(MandrillBaseWebhookView):
             esp_event=esp_event,
             message=message,
         )
+
+
+class MandrillAutomaticWebhookView(MandrillBaseWebhookView):
+    """Base view class for Mandrill webhooks"""
+
+    def esp_to_anymail_event(self, esp_event):
+        """Automatically route requests to the inbound or tracking views"""
+        esp_type = getfirst(esp_event, ['event', 'type'], 'unknown')
+
+        if esp_type == 'inbound':
+            self.signal = inbound
+            return MandrillInboundWebhookView().esp_to_anymail_event(esp_event)
+
+        self.signal = tracking
+        return MandrillTrackingWebhookView().esp_to_anymail_event(esp_event)
