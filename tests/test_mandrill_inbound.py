@@ -5,7 +5,7 @@ from mock import ANY
 
 from anymail.inbound import AnymailInboundMessage
 from anymail.signals import AnymailInboundEvent
-from anymail.webhooks.mandrill import MandrillInboundWebhookView
+from anymail.webhooks.mandrill import MandrillCombinedWebhookView
 
 from .test_mandrill_webhooks import TEST_WEBHOOK_KEY, mandrill_args
 from .webhook_cases import WebhookTestCase
@@ -51,10 +51,12 @@ class MandrillInboundTestCase(WebhookTestCase):
             },
         }
 
-        response = self.client.post(**mandrill_args(events=[raw_event], path='/anymail/mandrill/inbound/'))
+        response = self.client.post(**mandrill_args(events=[raw_event], path='/anymail/mandrill/'))
         self.assertEqual(response.status_code, 200)
-        kwargs = self.assert_handler_called_once_with(self.inbound_handler, sender=MandrillInboundWebhookView,
+        kwargs = self.assert_handler_called_once_with(self.inbound_handler, sender=MandrillCombinedWebhookView,
                                                       event=ANY, esp_name='Mandrill')
+        self.assertEqual(self.tracking_handler.call_count, 0)  # Inbound should not dispatch tracking signal
+
         event = kwargs['event']
         self.assertIsInstance(event, AnymailInboundEvent)
         self.assertEqual(event.event_type, "inbound")
