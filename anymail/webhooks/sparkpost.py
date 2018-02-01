@@ -13,6 +13,8 @@ from ..signals import inbound, tracking, AnymailInboundEvent, AnymailTrackingEve
 class SparkPostBaseWebhookView(AnymailBaseWebhookView):
     """Base view class for SparkPost webhooks"""
 
+    esp_name = "SparkPost"
+
     def parse_events(self, request):
         raw_events = json.loads(request.body.decode('utf-8'))
         unwrapped_events = [self.unwrap_event(raw_event) for raw_event in raw_events]

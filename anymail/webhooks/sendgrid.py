@@ -11,6 +11,7 @@ from ..signals import inbound, tracking, AnymailInboundEvent, AnymailTrackingEve
 class SendGridTrackingWebhookView(AnymailBaseWebhookView):
     """Handler for SendGrid delivery and engagement tracking webhooks"""
 
+    esp_name = "SendGrid"
     signal = tracking
 
     def parse_events(self, request):
@@ -119,6 +120,7 @@ class SendGridTrackingWebhookView(AnymailBaseWebhookView):
 class SendGridInboundWebhookView(AnymailBaseWebhookView):
     """Handler for SendGrid inbound webhook"""
 
+    esp_name = "SendGrid"
     signal = inbound
 
     def parse_events(self, request):

@@ -1,4 +1,3 @@
-import re
 import warnings
 
 import six
@@ -128,6 +127,9 @@ class AnymailBaseWebhookView(AnymailBasicAuthMixin, View):
         """
         Read-only name of the ESP for this webhook view.
 
-        (E.g., MailgunTrackingWebhookView will return "Mailgun")
+        Subclasses must override with class attr. E.g.:
+            esp_name = "Postmark"
+            esp_name = "SendGrid"  # (use ESP's preferred capitalization)
         """
-        return re.sub(r'(Tracking|Inbound|Automatic)WebhookView$', "", self.__class__.__name__)
+        raise NotImplementedError("%s.%s must declare esp_name class attr" %
+                                  (self.__class__.__module__, self.__class__.__name__))

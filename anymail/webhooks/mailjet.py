@@ -11,6 +11,7 @@ from ..signals import inbound, tracking, AnymailInboundEvent, AnymailTrackingEve
 class MailjetTrackingWebhookView(AnymailBaseWebhookView):
     """Handler for Mailjet delivery and engagement tracking webhooks"""
 
+    esp_name = "Mailjet"
     signal = tracking
 
     def parse_events(self, request):
@@ -101,6 +102,7 @@ class MailjetTrackingWebhookView(AnymailBaseWebhookView):
 class MailjetInboundWebhookView(AnymailBaseWebhookView):
     """Handler for Mailjet inbound (parse API) webhook"""
 
+    esp_name = "Mailjet"
     signal = inbound
 
     def parse_events(self, request):

@@ -16,6 +16,7 @@ from ..utils import get_anymail_setting, combine, querydict_getfirst
 class MailgunBaseWebhookView(AnymailBaseWebhookView):
     """Base view class for Mailgun webhooks"""
 
+    esp_name = "Mailgun"
     warn_if_no_basic_auth = False  # because we validate against signature
 
     api_key = None  # (Declaring class attr allows override by kwargs in View.as_view.)

@@ -12,6 +12,8 @@ from ..utils import getfirst, EmailAddress
 class PostmarkBaseWebhookView(AnymailBaseWebhookView):
     """Base view class for Postmark webhooks"""
 
+    esp_name = "Postmark"
+
     def parse_events(self, request):
         esp_event = json.loads(request.body.decode('utf-8'))
         return [self.esp_to_anymail_event(esp_event)]
