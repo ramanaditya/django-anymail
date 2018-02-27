@@ -190,7 +190,7 @@ class MailjetPayload(RequestsPayload):
         self.data.setdefault(field, []).append(att)
 
     def set_envelope_sender(self, email):
-        self.data["Sender"] = email.addr_spec  # ??? v3 docs unclear
+        self.data["Sender"] = self._mailjet_email(email)
 
     def set_metadata(self, metadata):
         # Mailjet expects a single string payload
