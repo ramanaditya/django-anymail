@@ -5,6 +5,7 @@ from .webhooks.mailjet import MailjetInboundWebhookView, MailjetTrackingWebhookV
 from .webhooks.mandrill import MandrillCombinedWebhookView
 from .webhooks.postmark import PostmarkInboundWebhookView, PostmarkTrackingWebhookView
 from .webhooks.sendgrid import SendGridInboundWebhookView, SendGridTrackingWebhookView
+from .webhooks.sendinblue import SendinBlueTrackingWebhookView
 from .webhooks.sparkpost import SparkPostInboundWebhookView, SparkPostTrackingWebhookView
 
 
@@ -20,6 +21,7 @@ urlpatterns = [
     url(r'^mailjet/tracking/$', MailjetTrackingWebhookView.as_view(), name='mailjet_tracking_webhook'),
     url(r'^postmark/tracking/$', PostmarkTrackingWebhookView.as_view(), name='postmark_tracking_webhook'),
     url(r'^sendgrid/tracking/$', SendGridTrackingWebhookView.as_view(), name='sendgrid_tracking_webhook'),
+    url(r'^sendinblue/tracking/$', SendinBlueTrackingWebhookView.as_view(), name='sendinblue_tracking_webhook'),
     url(r'^sparkpost/tracking/$', SparkPostTrackingWebhookView.as_view(), name='sparkpost_tracking_webhook'),
 
     # Anymail uses a combined Mandrill webhook endpoint, to simplify Mandrill's key-validation scheme:
