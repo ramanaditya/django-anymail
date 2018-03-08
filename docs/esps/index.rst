@@ -49,7 +49,7 @@ Email Service Provider                        |Mailgun|    |Mailjet|   |Mandrill
 .. rubric:: :ref:`Status <esp-send-status>` and :ref:`event tracking <event-tracking>`
 -------------------------------------------------------------------------------------------------------------------------------------
 :attr:`~AnymailMessage.anymail_status`        Yes          Yes         Yes          Yes         Yes         Yes           Yes
-|AnymailTrackingEvent| from webhooks          Yes          Yes         Yes          Yes         Yes         *Coming*      Yes
+|AnymailTrackingEvent| from webhooks          Yes          Yes         Yes          Yes         Yes         Yes           Yes
 
 .. rubric:: :ref:`Inbound handling <inbound>`
 -------------------------------------------------------------------------------------------------------------------------------------

@@ -222,8 +222,37 @@ only in *non*-template sends.)
 Status tracking webhooks
 ------------------------
 
-SendinBlue supports status tracking webhooks. Integration with Anymail's normalized
-:ref:`status tracking <event-tracking>` is planned for a future release.
+If you are using Anymail's normalized :ref:`status tracking <event-tracking>`, add
+the url at SendinBlue's site under  `Transactional > Settings > Webhook`_.
+
+The "URL to call" is:
+
+   :samp:`https://{random}:{random}@{yoursite.example.com}/anymail/sendinblue/tracking/`
+
+     * *random:random* is an :setting:`ANYMAIL_WEBHOOK_SECRET` shared secret
+     * *yoursite.example.com* is your Django site
+
+Be sure to select the checkboxes for all the event types you want to receive. (Also make
+sure you are in the "Transactional" section of their site; SendinBlue has a separate set
+of "Campaign" webhooks, which don't apply to messages sent through Anymail.)
+
+If you are interested in tracking opens, note that SendinBlue has both a "First opening"
+and an "Opened" event type, and will generate both the first time a message is opened.
+Anymail normalizes both of these events to "opened." To avoid double counting, you should
+only enable one of the two.
+
+SendinBlue will report these Anymail :attr:`~anymail.signals.AnymailTrackingEvent.event_type`\s:
+queued, rejected, bounced, deferred, delivered, opened (see note above), clicked, complained,
+unsubscribed, subscribed (though this should never occur for transactional email).
+
+For events that occur in rapid succession, SendinBlue frequently delivers them out of order.
+For example, it's not uncommon to receive a "delivered" event before the corresponding "queued."
+
+The event's :attr:`~anymail.signals.AnymailTrackingEvent.esp_event` field will be
+a `dict` of raw webhook data received from SendinBlue.
+
+
+.. _Transactional > Settings > Webhook: https://app-smtp.sendinblue.com/webhook
 
 
 .. _sendinblue-inbound:
