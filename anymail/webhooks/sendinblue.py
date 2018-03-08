@@ -21,7 +21,7 @@ class SendinBlueTrackingWebhookView(AnymailBaseWebhookView):
     # There's a list of webhook events at https://apidocs.sendinblue.com/webhooks/#3.
     event_types = {
         # Map SendinBlue event type: Anymail normalized (event type, reject reason)
-        "request": (EventType.SENT, None),
+        "request": (EventType.QUEUED, None),  # received even if message won't be sent (e.g., before "blocked")
         "delivered": (EventType.DELIVERED, None),
         "hard_bounce": (EventType.BOUNCED, RejectReason.BOUNCED),
         "soft_bounce": (EventType.BOUNCED, RejectReason.BOUNCED),
@@ -33,8 +33,7 @@ class SendinBlueTrackingWebhookView(AnymailBaseWebhookView):
         "click": (EventType.CLICKED, None),
         "unsubscribe": (EventType.UNSUBSCRIBED, None),
         "list_addition": (EventType.SUBSCRIBED, None),  # shouldn't occur for transactional messages
-        # SendinBlue delivers *both* unique_opened and opened on the first open in a particular client
-        "unique_opened": (EventType.UNKNOWN, None),  # not OPENED -- avoids double-counting (see opened above)
+        "unique_opened": (EventType.OPENED, None),  # you'll *also* receive an "opened"
     }
 
     def esp_to_anymail_event(self, esp_event):
@@ -43,7 +42,8 @@ class SendinBlueTrackingWebhookView(AnymailBaseWebhookView):
         recipient = esp_event.get("email")
 
         try:
-            # SendinBlue supplies "ts", "ts_event" and "date" fields, with unclear timezones.
+            # SendinBlue supplies "ts", "ts_event" and "date" fields, which seem to be based on the
+            # timezone set in the account preferences (and possibly with inconsistent DST adjustment).
             # "ts_epoch" is the only field that seems to be consistently UTC; it's in milliseconds
             timestamp = datetime.fromtimestamp(esp_event["ts_epoch"] / 1000.0, tz=utc)
         except (KeyError, ValueError):

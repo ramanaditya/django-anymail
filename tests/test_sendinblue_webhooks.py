@@ -30,16 +30,13 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
             "message-id": "<201803062010.27287306012@smtp-relay.mailin.fr>",
             "subject": "Test subject",
 
-            # From a message sent at 2018-03-06T19:10:23Z:
-            "date": "2018-03-06 11:10:23",  # what timezone is this?
-            "ts": 1520331023,  # 2018-03-06T10:10:23 -- what timezone is this?
+            # From a message sent at 2018-03-06 11:10:23-08:00 (2018-03-06 19:10:23+00:00)...
+            "date": "2018-03-06 11:10:23",  # uses time zone from SendinBlue account's preferences
+            "ts": 1520331023,  # 2018-03-06 10:10:23 -- what time zone is this?
             "ts_event": 1520331023,  # unclear if this ever differs from "ts"
-            "ts_epoch": 1520363423000,  # 2018-03-06T19:10:23.000Z -- correct!
+            "ts_epoch": 1520363423000,  # 2018-03-06 19:10:23.000+00:00 -- UTC (milliseconds)
 
             "X-Mailin-custom": '{"meta": "data"}',
-            # TODO: SendinBlue seems to have a bug where X-Mailin-custom is truncated at the first ':',
-            #       only in webhook data (e.g., above would be ` "X-Mailin-custom": '{"meta":' `).
-            #       Waiting to hear from their technical team.
             "tag": "test-tag",  # note: for template send, is template name if no other tag provided
             "template_id": 12,
             "sending_ip": "333.33.33.33",
@@ -51,7 +48,7 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
                                                       event=ANY, esp_name='SendinBlue')
         event = kwargs['event']
         self.assertIsInstance(event, AnymailTrackingEvent)
-        self.assertEqual(event.event_type, "sent")
+        self.assertEqual(event.event_type, "queued")
         self.assertEqual(event.esp_event, raw_event)
         self.assertEqual(event.timestamp, datetime(2018, 3, 6, 19, 10, 23, microsecond=0, tzinfo=utc))
         self.assertEqual(event.message_id, "<201803062010.27287306012@smtp-relay.mailin.fr>")
@@ -66,7 +63,7 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
             # that was tested earlier, or that is not used by Anymail
             "event": "delivered",
             "email": "recipient@example.com",
-            "ts": 1519901895,
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
         }
         response = self.client.post('/anymail/sendinblue/tracking/',
@@ -84,15 +81,13 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
         self.assertEqual(event.tags, [])  # empty list when no tags given
 
     def test_hard_bounce(self):
-        # "Emails which were not delivered and which will never arrive at destination.
-        # Emails are misspelled or do not exist."
-        # TODO: capture actual hard_bounce event (payload below is a guess)
         raw_event = {
             "event": "hard_bounce",
-            "email": "recipient@example.com",
-            "ts": 1519901895,
+            "email": "not-a-user@example.com",
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
-            "reason": "(guessing hard_bounce includes a reason)",
+            # the leading space in the reason is as received in actual testing:
+            "reason": " RecipientError: 550 5.5.0 Requested action not taken: mailbox unavailable.",
         }
         response = self.client.post('/anymail/sendinblue/tracking/',
                                     content_type='application/json', data=json.dumps(raw_event))
@@ -102,13 +97,14 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
         event = kwargs['event']
         self.assertEqual(event.event_type, "bounced")
         self.assertEqual(event.reject_reason, "bounced")
-        self.assertEqual(event.mta_response, "(guessing hard_bounce includes a reason)")
+        self.assertEqual(event.mta_response,
+                         " RecipientError: 550 5.5.0 Requested action not taken: mailbox unavailable.")
 
     def test_soft_bounce_event(self):
         raw_event = {
             "event": "soft_bounce",
             "email": "recipient@no-mx.example.com",
-            "ts": 1519901895,
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
             "reason": "undefined Unable to find MX of domain no-mx.example.com",
         }
@@ -124,14 +120,12 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
         self.assertEqual(event.mta_response, "undefined Unable to find MX of domain no-mx.example.com")
 
     def test_blocked(self):
-        # "These are spam report emails + hard bounce emails when they are repeated."
-        # TODO: capture actual blocked event (payload below is a guess)
         raw_event = {
             "event": "blocked",
             "email": "recipient@example.com",
-            "ts": 1519901895,
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
-            "reason": "(guessing blocked includes a reason)",
+            "reason": "blocked : due to blacklist user",
         }
         response = self.client.post('/anymail/sendinblue/tracking/',
                                     content_type='application/json', data=json.dumps(raw_event))
@@ -141,15 +135,15 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
         event = kwargs['event']
         self.assertEqual(event.event_type, "rejected")
         self.assertEqual(event.reject_reason, "blocked")
-        self.assertEqual(event.mta_response, "(guessing blocked includes a reason)")
+        self.assertEqual(event.mta_response, "blocked : due to blacklist user")
 
     def test_spam(self):
         # "When a person who received your email reported that it is a spam."
-        # TODO: capture actual spam event (payload below is a guess)
+        # (haven't observed "spam" event in actual testing; payload below is a guess)
         raw_event = {
             "event": "spam",
             "email": "recipient@example.com",
-            "ts": 1519901895,
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
         }
         response = self.client.post('/anymail/sendinblue/tracking/',
@@ -162,11 +156,12 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
 
     def test_invalid_email(self):
         # "If a ISP again indicated us that the email is not valid or if we discovered that the email is not valid."
-        # TODO: capture actual invalid_email event (payload below is a guess)
+        # (unclear whether this error originates with the receiving MTA or with SendinBlue pre-send)
+        # (haven't observed "invalid_email" event in actual testing; payload below is a guess)
         raw_event = {
             "event": "invalid_email",
             "email": "recipient@example.com",
-            "ts": 1519901895,
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
             "reason": "(guessing invalid_email includes a reason)",
         }
@@ -187,7 +182,7 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
         raw_event = {
             "event": "deferred",
             "email": "notauser@example.com",
-            "ts": 1519901895,
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
             "reason": "550 RecipientError: 550 5.1.1 <notauser@example.com>: Recipient address rejected: "
                       "User unknown in virtual alias table",
@@ -205,10 +200,12 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
                          "User unknown in virtual alias table")
 
     def test_opened_event(self):
+        # SendinBlue delivers unique_opened *and* opened on the first open.
+        # To avoid double-counting, you should only enable one of the two events in SendinBlue.
         raw_event = {
             "event": "opened",
             "email": "recipient@example.com",
-            "ts": 1519901895,
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
         }
         response = self.client.post('/anymail/sendinblue/tracking/',
@@ -222,11 +219,11 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
 
     def test_unique_opened_event(self):
         # SendinBlue delivers unique_opened *and* opened on the first open.
-        # To avoid double-counting, Anymail normalizes unique_opened to UNKNOWN rather than OPENED.
+        # To avoid double-counting, you should only enable one of the two events in SendinBlue.
         raw_event = {
             "event": "unique_opened",
             "email": "recipient@example.com",
-            "ts": 1519901895,
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
         }
         response = self.client.post('/anymail/sendinblue/tracking/',
@@ -235,13 +232,13 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
         kwargs = self.assert_handler_called_once_with(self.tracking_handler, sender=SendinBlueTrackingWebhookView,
                                                       event=ANY, esp_name='SendinBlue')
         event = kwargs['event']
-        self.assertEqual(event.event_type, "unknown")
+        self.assertEqual(event.event_type, "opened")
 
     def test_clicked_event(self):
         raw_event = {
             "event": "click",
             "email": "recipient@example.com",
-            "ts": 1519901895,
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
             "link": "https://example.com/click/me",
         }
@@ -257,11 +254,11 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
 
     def test_unsubscribe(self):
         # "When a person unsubscribes from the email received."
-        # TODO: capture actual unsubscribe event (payload below is a guess)
+        # (haven't observed "unsubscribe" event in actual testing; payload below is a guess)
         raw_event = {
             "event": "unsubscribe",
             "email": "recipient@example.com",
-            "ts": 1519901895,
+            "ts_epoch": 1520363423000,
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
         }
         response = self.client.post('/anymail/sendinblue/tracking/',
