@@ -11,6 +11,8 @@ branches:
 
 matrix:
   include:
+    - { env: LINT_AND_DOCS=true, python: 3.6 }
+
     # Anymail supports the same python versions as Django, excluding Python 3.2, but adding pypy.
     # https://docs.djangoproject.com/en/dev/faq/install/#what-python-version-can-i-use-with-django
 
@@ -18,54 +20,52 @@ matrix:
     # combinations, to avoid rapidly consuming the testing accounts' entire send allotments.
 
     # Django 1.8: Python 2.7, 3.3, 3.4, 3.5
-    - { env: DJANGO=django==1.8 RUN_LIVE_TESTS=true, python: 2.7 }
-    - { env: DJANGO=django==1.8, python: 3.3 }
-    - { env: DJANGO=django==1.8, python: 3.4 }
-    - { env: DJANGO=django==1.8, python: 3.5 }
-    - { env: DJANGO=django==1.8, python: pypy }
+    - { env: DJANGO=1.8 RUN_LIVE_TESTS=true, python: 2.7 }
+    - { env: DJANGO=1.8, python: 3.3 }
+    - { env: DJANGO=1.8, python: 3.4 }
+    - { env: DJANGO=1.8, python: 3.5 }
+    - { env: DJANGO=1.8, python: pypy }
     # Django 1.9: Python 2.7, 3.4, 3.5
-    - { env: DJANGO=django==1.9, python: 2.7 }
-    - { env: DJANGO=django==1.9, python: 3.4 }
-    - { env: DJANGO=django==1.9, python: 3.5 }
-    - { env: DJANGO=django==1.9, python: pypy }
+    - { env: DJANGO=1.9, python: 2.7 }
+    - { env: DJANGO=1.9, python: 3.4 }
+    - { env: DJANGO=1.9, python: 3.5 }
+    - { env: DJANGO=1.9, python: pypy }
     # Django 1.10: Python 2.7, 3.4, 3.5
-    - { env: DJANGO=django==1.10, python: 2.7 }
-    - { env: DJANGO=django==1.10, python: 3.4 }
-    - { env: DJANGO=django==1.10, python: 3.5 }
-    - { env: DJANGO=django==1.10, python: pypy }
+    - { env: DJANGO=1.10, python: 2.7 }
+    - { env: DJANGO=1.10, python: 3.4 }
+    - { env: DJANGO=1.10, python: 3.5 }
+    - { env: DJANGO=1.10, python: pypy }
     # Django 1.11: Python 2.7, 3.4, 3.5, or 3.6
-    - { env: DJANGO=django==1.11, python: 2.7 }
-    - { env: DJANGO=django==1.11, python: 3.4 }
-    - { env: DJANGO=django==1.11, python: 3.5 }
-    - { env: DJANGO=django==1.11, python: 3.6 }
-    - { env: DJANGO=django==1.11, python: pypy }
+    - { env: DJANGO=1.11, python: 2.7 }
+    - { env: DJANGO=1.11, python: 3.4 }
+    - { env: DJANGO=1.11, python: 3.5 }
+    - { env: DJANGO=1.11, python: 3.6 }
+    - { env: DJANGO=1.11, python: pypy }
     # Django 2.0: Python 3.5+
-    - { env: DJANGO=django==2.0, python: 3.5 }
-    - { env: DJANGO=django==2.0 RUN_LIVE_TESTS=true, python: 3.6 }
+    - { env: DJANGO=2.0, python: 3.5 }
+    - { env: DJANGO=2.0 RUN_LIVE_TESTS=true, python: 3.6 }
+    - { env: DJANGO=2.0, python: pypy3 }
     # Django 2.1 (prerelease): Python 3.5+
-    #- { env: DJANGO="--pre django", python: 3.5 }
-    #- { env: DJANGO="--pre django", python: 3.6 }
+    #- { env: DJANGO=2.1, python: 3.5 }
+    #- { env: DJANGO=2.1, python: 3.6 }
+    # Django development master (direct from GitHub source):
+    - { env: DJANGO=master, python: 3.6 }
+    - { env: DJANGO=master, python: 3.7-dev }
 
-    - { env: FLAKE8=true, python: 2.7 }
-    - { env: FLAKE8=true, python: 3.6 }
-
-  # allow_failures:
-  #   - env: DJANGO="--pre django"
-  #   - python: 3.6
+  allow_failures:
+    - env: DJANGO=2.1
+      python: 3.5
+    - env: DJANGO=2.1
+      python: 3.6
+    - env: DJANGO=master
+      python: 3.6
+    - env: DJANGO=master
+      python: 3.7-dev
 
 cache: pip
 
-# If env DJANGO is set, install Anymail and run tests
-# If env FLAKE8 is set, run flake8
 install:
-  - pip install --upgrade setuptools pip
-  - if [[ -n $DJANGO ]]; then pip install $DJANGO; fi
-  # For now, install Anymail including all optional ESPs, and test at once
-  # (in future, might want to matrix ESPs to test cross-dependencies)
-  - if [[ -n $DJANGO ]]; then pip install .[mailgun,mailjet,mandrill,postmark,sendinblue,sendgrid,sparkpost]; fi
-  - if [[ -n $FLAKE8 ]]; then pip install flake8; fi
-  - pip list
+  - pip install tox-travis
 
 script:
-  - if [[ -n $DJANGO ]]; then python setup.py test; fi
-  - if [[ -n $FLAKE8 ]]; then flake8; fi
+  - tox

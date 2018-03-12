@@ -1,0 +1,74 @@
+/*
+    readme.css
+    Approximates PyPI package description rendering as of 3/2018,
+    using docutils rst2html output.
+ */
+
+/* Borrow base docutils and pygments styles directly from PyPI: */
+@import url("https://pypi.python.org/static/css/docutils.css");
+@import url("https://pypi.python.org/static/css/pygments.css"); /* requires rst2html 'short' classnames */
+
+/* Subset of PyPI site styles applicable to package description: */
+HTML, BODY {
+    font-family: Arial, Verdana, Geneva, "Bitstream Vera Sans", Helvetica, sans-serif;
+    font-size: 103%;
+    color: #000;
+    background-color: #FFF;
+}
+H1, H2, H3, H4, H5 {
+    font-family: Georgia, "Bitstream Vera Serif", "New York", Palatino, serif;
+    font-weight: normal;
+    line-height: 1em;
+}
+H1 {
+    font-size: 160%;
+    color: #234764;
+    margin: 0.7em 0;
+    text-decoration: none;
+}
+H2 {
+    font-size: 140%;
+    color: #366D9C;
+    margin: 0.7em 0 0.7em 0;
+}
+IMG {
+    border: 0;
+}
+A:link {
+    color: #00A;
+}
+A:visited {
+    color: #551A8B;
+}
+P A:link, P A:visited,
+UL A:link, UL A:visited,
+OL A:link, OL A:visited {
+    text-decoration: none;
+    border-bottom: 1px dashed #ccc;
+}
+
+/* Additional styles, to account for not having all of PyPI's wrapper and navigation divs: */
+body {
+    line-height: 1.5;
+    font-size: 14.6px; /* ~computed font-size in PyPI's div#content */
+}
+h1.title {
+    text-align: left;
+}
+ul, li {
+    margin-left: 1em;
+    padding-left: 0;
+}
+pre {
+    padding: 10px;
+    font-size: 11.9px; /* ~computed font-size in PyPI's div#content pre */
+}
+
+/* Give the page a little breathing room: */
+.document {
+    max-width: 960px;
+    margin: 0 auto;
+}
+body {
+    padding: 1em;
+}

@@ -1,3 +1,10 @@
+.. role:: shell(code)
+    :language: shell
+
+.. role:: rst(code)
+    :language: rst
+
+
 .. _contributing:
 
 Contributing
@@ -48,6 +55,8 @@ Pull requests are always welcome to fix bugs and improve support for ESP and Dja
   (basically, :pep:`8` with longer lines OK).
 * By submitting a pull request, you're agreeing to release your changes under under
   the same BSD license as the rest of this project.
+* Documentation is appreciated, but not required.
+  (Please don't let missing or incomplete documentation keep you from contributing code.)
 
 .. Intentionally point to Django dev branch for coding docs (rather than Django stable):
 .. _Django coding style:
@@ -57,32 +66,121 @@ Pull requests are always welcome to fix bugs and improve support for ESP and Dja
 Testing
 -------
 
-Anymail is `tested on Travis`_ against several combinations of Django
-and Python versions. (Full list in `.travis.yml`_.)
+Anymail is `tested on Travis CI`_ against several combinations of Django
+and Python versions. Tests are run at least once a week, to check whether ESP APIs
+and other dependencies have changed out from under Anymail.
+
+For local development, the recommended test command is
+:shell:`tox -e django20-py36,django18-py27,lint`, which tests a representative
+combination of Python and Django versions. It also runs :pypi:`flake8` and other
+code-style checkers. Some other test options are covered below, but using this
+tox command catches most problems, and is a good pre-pull-request check.
 
 Most of the included tests verify that Anymail constructs the expected ESP API
 calls, without actually calling the ESP's API or sending any email. So these tests
-don't require API keys, but they *do* require `mock`_ (``pip install mock``).
+don't require API keys, but they *do* require :pypi:`mock` and all ESP-specific
+package requirements.
 
-To run the tests, either:
-
-    .. code-block:: console
-
-        $ python setup.py test
-
-or:
+To run the tests, you can:
 
     .. code-block:: console
 
+        $ python setup.py test  # (also installs test dependencies if needed)
+
+Or:
+
+    .. code-block:: console
+
+        $ pip install mock sparkpost  # install test dependencies
         $ python runtests.py
 
-Anymail also includes some integration tests, which do call the live ESP APIs.
-These integration tests require API keys (and sometimes other settings) they
-get from from environment variables. They're skipped if these keys aren't present.
-If you want to run them, look in the ``*_integration_tests.py``
-files in the `tests source`_ for specific requirements.
+        ## this command can also run just a few test cases, e.g.:
+        $ python runtests.py tests.test_mailgun_backend tests.test_mailgun_webhooks
 
-.. _.travis.yml: https://github.com/anymail/django-anymail/blob/master/.travis.yml
+Or to test against multiple versions of Python and Django all at once, use :pypi:`tox`.
+You'll need at least Python 2.7 and Python 3.6 available. (If your system doesn't come
+with those, `pyenv`_ is a helpful way to install and manage multiple Python versions.)
+
+    .. code-block:: console
+
+        $ pip install tox  # (if you haven't already)
+        $ tox -e django20-py36,django18-py27,lint  # test recommended environments
+
+        ## you can also run just some test cases, e.g.:
+        $ tox -e django20-py36,django18-py27 tests.test_mailgun_backend tests.test_utils
+
+        ## to test more Python/Django versions:
+        $ tox  # ALL 20+ envs! (grab a coffee, or use `detox` to run tests in parallel)
+        $ tox --skip-missing-interpreters  # if some Python versions aren't installed
+
+In addition to the mocked tests, Anymail has integration tests which *do* call live ESP APIs.
+These tests are normally skipped; to run them, set environment variables with the necessary
+API keys or other settings. For example:
+
+    .. code-block:: console
+
+        $ export MAILGUN_TEST_API_KEY='your-Mailgun-API-key'
+        $ export MAILGUN_TEST_DOMAIN='mail.example.com'  # sending domain for that API key
+        $ tox -e django20-py36 tests.test_mailgun_integration
+
+Check the ``*_integration_tests.py`` files in the `tests source`_ to see which variables
+are required for each ESP. Depending on the supported features, the integration tests for
+a particular ESP send around 5-15 individual messages. For ESPs that don't offer a sandbox,
+these will be real sends charged to your account (again, see the notes in each test case).
+Be sure to specify a particular testenv with tox's `-e` option, or tox may repeat the tests
+for all 20+ supported combinations of Python and Django, sending hundreds of messages.
+
+
+.. _pyenv: https://github.com/pyenv/pyenv
+.. _tested on Travis CI: https://travis-ci.org/anymail/django-anymail
 .. _tests source: https://github.com/anymail/django-anymail/blob/master/tests
-.. _mock: http://www.voidspace.org.uk/python/mock/index.html
-.. _tested on Travis: https://travis-ci.org/anymail/django-anymail
+.. _.travis.yml: https://github.com/anymail/django-anymail/blob/master/.travis.yml
+
+
+Documentation
+-------------
+
+As noted above, Anymail welcomes pull requests with missing or incomplete
+documentation. (Code without docs is better than no contribution at all.)
+But documentation---even needing edits---is always appreciated, as are pull
+requests simply to improve the docs themselves.
+
+Like many Python packages, Anymail's docs use :pypi:`Sphinx`. If you've never
+worked with Sphinx or reStructuredText, Django's `Writing Documentation`_ can
+get you started.
+
+It's easiest to build Anymail's docs using tox:
+
+    .. code-block:: console
+
+        $ pip install tox  # (if you haven't already)
+        $ tox -e docs  # build the docs using Sphinx
+
+You can run Python's simple HTTP server to view them:
+
+    .. code-block:: console
+
+        $ (cd .tox/docs/_html; python3 -m http.server 8123 --bind 127.0.0.1)
+
+... and then open http://localhost:8123/ in a browser. Leave the server running,
+and just re-run the tox command and refresh your browser as you make changes.
+
+If you've edited the main README.rst, you can preview an approximation of what
+will end up on PyPI at http://localhost:8123/readme.html.
+
+Anymail's Sphinx conf sets up a few enhancements you can use in the docs:
+
+* Loads `intersphinx`_ mappings for Python 3, Django (stable), and Requests.
+  Docs can refer to things like :rst:`:ref:`django:topics-testing-email``
+  or :rst:`:class:`django.core.mail.EmailMessage``.
+* Supports much of `Django's added markup`_, notably :rst:`:setting:`
+  for documenting or referencing Django and Anymail settings.
+* Allows linking to Python packages with :rst:`:pypi:`package-name``
+  (via `extlinks`_).
+
+.. _Django's added markup:
+    https://docs.djangoproject.com/en/stable/internals/contributing/writing-documentation/#django-specific-markup
+.. _extlinks: http://www.sphinx-doc.org/en/stable/ext/extlinks.html
+.. _intersphinx: http://www.sphinx-doc.org/en/master/ext/intersphinx.html
+.. _Writing Documentation:
+    https://docs.djangoproject.com/en/stable/internals/contributing/writing-documentation/

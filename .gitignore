@@ -3,6 +3,8 @@
 *.pyc
 *.egg
 *.egg-info
+.eggs/
+.tox/
 build/
 dist/
 docs/_build/
