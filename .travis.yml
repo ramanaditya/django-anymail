@@ -1,6 +1,14 @@
 sudo: false
 language: python
 
+branches:
+  # Only run builds on release branches.
+  # (Builds will *also* still run on pull requests;
+  # this avoids duplicate builds on the PR *branches*, too.)
+  only:
+    - master
+    - /^v\d+\.\d+(\.\d+)?(-\S*)?$/
+
 matrix:
   include:
     # Anymail supports the same python versions as Django, excluding Python 3.2, but adding pypy.
@@ -45,9 +53,7 @@ matrix:
   #   - env: DJANGO="--pre django"
   #   - python: 3.6
 
-cache:
-  directories:
-    - $HOME/.cache/pip
+cache: pip
 
 # If env DJANGO is set, install Anymail and run tests
 # If env FLAKE8 is set, run flake8
