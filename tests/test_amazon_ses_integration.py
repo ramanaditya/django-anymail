@@ -1,0 +1,140 @@
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals
+
+import os
+import unittest
+import warnings
+
+from django.test import SimpleTestCase
+from django.test.utils import override_settings
+
+from anymail.exceptions import AnymailAPIError
+from anymail.message import AnymailMessage
+
+from .utils import AnymailTestMixin, sample_image_path, RUN_LIVE_TESTS
+
+AMAZON_SES_TEST_ACCESS_KEY_ID = os.getenv("AMAZON_SES_TEST_ACCESS_KEY_ID")
+AMAZON_SES_TEST_SECRET_ACCESS_KEY = os.getenv("AMAZON_SES_TEST_SECRET_ACCESS_KEY")
+AMAZON_SES_TEST_REGION_NAME = os.getenv("AMAZON_SES_TEST_REGION_NAME", "us-east-1")
+
+
+@unittest.skipUnless(RUN_LIVE_TESTS, "RUN_LIVE_TESTS disabled in this environment")
+@unittest.skipUnless(AMAZON_SES_TEST_ACCESS_KEY_ID and AMAZON_SES_TEST_SECRET_ACCESS_KEY,
+                     "Set AMAZON_SES_TEST_ACCESS_KEY_ID and AMAZON_SES_TEST_SECRET_ACCESS_KEY "
+                     "environment variables to run Amazon SES integration tests")
+@override_settings(
+    EMAIL_BACKEND="anymail.backends.amazon_ses.EmailBackend",
+    ANYMAIL_AMAZON_SES_CLIENT_PARAMS={
+        # This setting provides Anymail-specific AWS credentials to boto3.client(),
+        # overriding any credentials in the environment or boto config. It's often
+        # *not* the best approach -- see the Anymail and boto3 docs for other options.
+        "aws_access_key_id": AMAZON_SES_TEST_ACCESS_KEY_ID,
+        "aws_secret_access_key": AMAZON_SES_TEST_SECRET_ACCESS_KEY,
+        "region_name": AMAZON_SES_TEST_REGION_NAME,
+    })
+class AmazonSESBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
+    """Amazon SES API integration tests
+
+    These tests run against the **live** Amazon SES API, using the environment
+    variables `AMAZON_SES_TEST_ACCESS_KEY_ID` and `AMAZON_SES_TEST_SECRET_ACCESS_KEY`
+    as AWS credentials. If those variables are not set, these tests won't run.
+    (You can also set the environment variable `AMAZON_SES_TEST_REGION_NAME`
+    to test SES using a region other than the default "us-east-1".)
+
+    Amazon SES doesn't offer a test mode -- it tries to send everything you ask.
+    To avoid stacking up a pile of undeliverable @example.com
+    emails, the tests use Amazon's @simulator.amazonses.com addresses.
+    https://docs.aws.amazon.com/ses/latest/DeveloperGuide/mailbox-simulator.html
+
+    Amazon SES also doesn't support arbitrary senders (so no from@example.com).
+    We've set up @test-ses.anymail.info as a validated sending domain for these tests.
+    You may need to change the from_email to your own address when testing.
+
+    """
+
+    def setUp(self):
+        super(AmazonSESBackendIntegrationTests, self).setUp()
+        self.message = AnymailMessage('Anymail Amazon SES integration test', 'Text content',
+                                      'test@test-ses.anymail.info', ['success@simulator.amazonses.com'])
+        self.message.attach_alternative('<p>HTML content</p>', "text/html")
+
+        # boto3 relies on GC to close connections. Python 3 warns about unclosed ssl.SSLSocket during cleanup.
+        # We don't care. (It might not be a real problem worth warning, but in any case it's not our problem.)
+        # https://www.google.com/search?q=unittest+boto3+ResourceWarning+unclosed+ssl.SSLSocket
+        # Filter in TestCase.setUp because unittest resets the warning filters for each test.
+        # https://stackoverflow.com/a/26620811/647002
+        warnings.filterwarnings("ignore", message=r"unclosed \<ssl\.SSLSocket", category=ResourceWarning)
+
+    def test_simple_send(self):
+        # Example of getting the Amazon SES send status and message id from the message
+        sent_count = self.message.send()
+        self.assertEqual(sent_count, 1)
+
+        anymail_status = self.message.anymail_status
+        sent_status = anymail_status.recipients['success@simulator.amazonses.com'].status
+        message_id = anymail_status.recipients['success@simulator.amazonses.com'].message_id
+
+        self.assertEqual(sent_status, 'queued')  # Amazon SES always queues (or raises an error)
+        self.assertRegex(message_id, r'[0-9a-f-]+')  # Amazon SES message ids are groups of hex chars
+        self.assertEqual(anymail_status.status, {sent_status})  # set of all recipient statuses
+        self.assertEqual(anymail_status.message_id, message_id)
+
+    def test_all_options(self):
+        message = AnymailMessage(
+            subject="Anymail Amazon SES all-options integration test",
+            body="This is the text body",
+            from_email='"Test From" <test@test-ses.anymail.info>',
+            to=["success+to1@simulator.amazonses.com", "Recipient 2 <success+to2@simulator.amazonses.com>"],
+            cc=["success+cc1@simulator.amazonses.com", "Copy 2 <success+cc2@simulator.amazonses.com>"],
+            bcc=["success+bcc1@simulator.amazonses.com", "Blind Copy 2 <success+bcc2@simulator.amazonses.com>"],
+            reply_to=["reply1@example.com", "Reply 2 <reply2@example.com>"],
+            headers={"X-Anymail-Test": "value"},
+
+            # Amazon SES only allows alphanumeric ASCII characters, '_', and '-' in tag/metadata keys and values:
+            metadata={"meta1": "simple_string", "meta2": 2},
+            tags=["tag_1", "tag_2"],
+        )
+        message.attach("attachment1.txt", "Here is some\ntext for you", "text/plain")
+        message.attach("attachment2.csv", "ID,Name\n1,Amy Lina", "text/csv")
+        cid = message.attach_inline_image_file(sample_image_path())
+        message.attach_alternative(
+            "<p><b>HTML:</b> with <a href='http://example.com'>link</a>"
+            "and image: <img src='cid:%s'></div>" % cid,
+            "text/html")
+
+        message.attach_alternative(
+            "Amazon SES SendRawEmail actually supports multiple alternative parts",
+            "text/x-note-for-email-geeks")
+
+        message.send()
+        self.assertEqual(message.anymail_status.status, {'queued'})
+
+    # TODO: support SendTemplatedEmail
+    # def test_stored_template(self):
+    #     message = AnymailMessage(
+    #         template_id='test-template',  # a real template in our Amazon SES test account
+    #         to=["success+to1@simulator.amazonses.com"],
+    #         merge_data={
+    #             'success+to1@simulator.amazonses.com': {
+    #                 'name': "Test Recipient",
+    #             }
+    #         },
+    #         merge_global_data={
+    #             'order': '12345',
+    #         },
+    #     )
+    #     message.send()
+    #     recipient_status = message.anymail_status.recipients
+    #     self.assertEqual(recipient_status['success+to1@simulator.amazonses.com'].status, 'queued')
+
+    @override_settings(ANYMAIL_AMAZON_SES_CLIENT_PARAMS={
+        "aws_access_key_id": "test-invalid-access-key-id",
+        "aws_secret_access_key": "test-invalid-secret-access-key",
+        "region_name": AMAZON_SES_TEST_REGION_NAME,
+    })
+    def test_invalid_aws_credentials(self):
+        with self.assertRaises(AnymailAPIError) as cm:
+            self.message.send()
+        err = cm.exception
+        # Make sure the exception message includes AWS's response:
+        self.assertIn("The security token included in the request is invalid", str(err))

@@ -349,7 +349,7 @@ def get_anymail_setting(name, default=UNSET, esp_name=None, kwargs=None, allow_b
         pass
 
     if esp_name is not None:
-        setting = "{}_{}".format(esp_name.upper(), name.upper())
+        setting = "{}_{}".format(esp_name.upper().replace(" ", "_"), name.upper())
     else:
         setting = name.upper()
     anymail_setting = "ANYMAIL_%s" % setting
