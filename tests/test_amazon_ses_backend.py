@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
-import textwrap
-from base64 import b64encode
 from datetime import datetime
 from email.mime.application import MIMEApplication
 
@@ -13,6 +11,7 @@ from django.test.utils import override_settings
 from mock import patch
 
 from anymail.exceptions import AnymailAPIError, AnymailUnsupportedFeature
+from anymail.inbound import AnymailInboundMessage
 from anymail.message import attach_inline_image_file
 
 from .utils import AnymailTestMixin, SAMPLE_IMAGE_FILENAME, sample_image_path, sample_image_content
@@ -85,6 +84,14 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
         (args, kwargs) = mock_operation.call_args
         return kwargs
 
+    def get_sent_message(self):
+        """Returns a parsed version of the send_raw_email RawMessage.Data param"""
+        params = self.get_send_params(operation_name="send_raw_email")  # (other operations don't have raw mime param)
+        raw_mime = params['RawMessage']['Data']
+        parsed = AnymailInboundMessage.parse_raw_mime(raw_mime)
+        parsed._original_raw_mime = raw_mime
+        return parsed
+
     def assert_esp_not_called(self, msg=None, operation_name="send_raw_email"):
         mock_operation = getattr(self.mock_client(), operation_name)
         if mock_operation.called:
@@ -130,7 +137,7 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
 
     def test_attachments(self):
         text_content = "• Item one\n• Item two\n• Item three"  # those are \u2022 bullets ("\N{BULLET}")
-        self.message.attach(filename=u"Une pièce jointe.txt",  # utf-8 chars in filename
+        self.message.attach(filename="Une pièce jointe.txt",  # utf-8 chars in filename
                             content=text_content, mimetype="text/plain")
 
         # Should guess mimetype if not provided...
@@ -140,38 +147,31 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         # Should work with a MIMEBase object (also tests no filename)...
         pdf_content = b"PDF\xb4 pretend this is valid pdf params"
         mimeattachment = MIMEApplication(pdf_content, 'pdf')  # application/pdf
+        mimeattachment["Content-Disposition"] = "attachment"
         self.message.attach(mimeattachment)
 
         self.message.send()
-        params = self.get_send_params()
-        raw_mime = params['RawMessage']['Data']
+        sent_message = self.get_sent_message()
+        attachments = sent_message.attachments
+        self.assertEqual(len(attachments), 3)
 
-        # TODO: this hacky approach to testing mime parts doesn't work on Python 2
-        #       because the Python 2 and 3 email packages output mime headers in different orders
-        #       (and sometimes wrap long headers differently)
-        # - could parse an email.message.Message (e.g., AnymailInboundMessage.parse_raw_mime) and walk the parts
-        # - maybe just test that the expected attachments are present (look for Content-Disposition headers)
-        #   and trust that Python and/or Django have tests covering the full content of the part
+        self.assertEqual(attachments[0].get_content_type(), "text/plain")
+        self.assertEqual(attachments[0].get_filename(), "Une pièce jointe.txt")
+        self.assertEqual(attachments[0].get_param("charset"), "utf-8")
+        # TODO: fix this bug in get_content_text (get_payload doesn't handle Content-Transfer-Encoding: 8bit)
+        att0_text = attachments[0].get_content_text()
+        if '\\u' in att0_text:  # workaround get_payload(decode=True) bug
+            att0_text = att0_text.encode('ascii').decode("raw-unicode-escape")
+        self.assertEqual(att0_text, text_content)
 
-        self.assertIn('\nContent-Type: text/plain; charset="utf-8"'
-                      '\nMIME-Version: 1.0'
-                      '\nContent-Transfer-Encoding: 8bit'
-                      '\nContent-Disposition: attachment;\n filename*=utf-8\'\'Une%20pi%C3%A8ce%20jointe.txt'
-                      '\n\n{}\n'.format(text_content),
-                      raw_mime)
+        self.assertEqual(attachments[1].get_content_type(), "image/png")
+        self.assertEqual(attachments[1].get_content_disposition(), "attachment")  # not inline
+        self.assertEqual(attachments[1].get_filename(), "test.png")
+        self.assertEqual(attachments[1].get_content_bytes(), png_content)
 
-        self.assertIn('\nContent-Type: image/png'
-                      '\nMIME-Version: 1.0'
-                      '\nContent-Transfer-Encoding: base64'
-                      '\nContent-Disposition: attachment; filename="test.png"'  # attachment, not inline
-                      '\n\n{}\n'.format(b64encode(png_content).decode('ascii')),
-                      raw_mime)
-
-        self.assertIn('\nContent-Type: application/pdf'
-                      '\nMIME-Version: 1.0'
-                      '\nContent-Transfer-Encoding: base64'
-                      '\n\n{}\n'.format(b64encode(pdf_content).decode('ascii')),
-                      raw_mime)
+        self.assertEqual(attachments[2].get_content_type(), "application/pdf")
+        self.assertIsNone(attachments[2].get_filename())  # no filename specified
+        self.assertEqual(attachments[2].get_content_bytes(), pdf_content)
 
     def test_embedded_images(self):
         image_filename = SAMPLE_IMAGE_FILENAME
@@ -183,28 +183,18 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         self.message.attach_alternative(html_content, "text/html")
 
         self.message.send()
-        params = self.get_send_params()
-        raw_mime = params['RawMessage']['Data']
+        sent_message = self.get_sent_message()
 
-        self.assertIn('\nContent-Type: text/html; charset="utf-8"'
-                      '\nMIME-Version: 1.0'
-                      '\nContent-Transfer-Encoding: 7bit'
-                      '\n\n%s\n' % html_content,
-                      raw_mime)
+        self.assertEqual(sent_message.html, html_content)
 
-        self.assertIn('\nContent-Type: image/png'
-                      '\nMIME-Version: 1.0'
-                      '\nContent-Transfer-Encoding: base64'
-                      '\nContent-Disposition: inline; filename="{image_filename}"'  # inline, not attachment
-                      '\nContent-ID: <{cid}>'
-                      '\n\n{image_data}\n'.format(
-                            image_data=textwrap.fill(b64encode(image_data).decode('ascii'), width=76),
-                            image_filename=image_filename,
-                            cid=cid),
-                      raw_mime)
+        inlines = sent_message.inline_attachments
+        self.assertEqual(len(inlines), 1)
+        self.assertEqual(inlines[cid].get_content_type(), "image/png")
+        self.assertEqual(inlines[cid].get_filename(), image_filename)
+        self.assertEqual(inlines[cid].get_content_bytes(), image_data)
 
         # Make sure neither the html nor the inline image is treated as an attachment:
-        self.assertNotIn('\nContent-Disposition: attachment', raw_mime)
+        self.assertNotIn('\nContent-Disposition: attachment', sent_message._original_raw_mime)
 
     def test_multiple_html_alternatives(self):
         # Multiple alternatives *are* allowed
@@ -213,14 +203,9 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         self.message.send()
         params = self.get_send_params()
         raw_mime = params['RawMessage']['Data']
-        self.assertIn('\nContent-Type: text/html; charset="utf-8"'
-                      '\nMIME-Version: 1.0'
-                      '\nContent-Transfer-Encoding: 7bit'
-                      '\n\n<p>First html is OK</p>\n', raw_mime)
-        self.assertIn('\nContent-Type: text/html; charset="utf-8"'
-                      '\nMIME-Version: 1.0'
-                      '\nContent-Transfer-Encoding: 7bit'
-                      '\n\n<p>And so is second</p>\n', raw_mime)
+        # just check the alternative smade it into the message (assume that Django knows how to format them properly)
+        self.assertIn('\n\n<p>First html is OK</p>\n', raw_mime)
+        self.assertIn('\n\n<p>And so is second</p>\n', raw_mime)
 
     def test_alternative(self):
         # Non-HTML alternatives *are* allowed
@@ -228,11 +213,8 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         self.message.send()
         params = self.get_send_params()
         raw_mime = params['RawMessage']['Data']
-        self.assertIn("\nContent-Type: application/json"
-                      "\nMIME-Version: 1.0"
-                      "\nContent-Transfer-Encoding: base64"
-                      "\n\n%s" % b64encode('{"is": "allowed"}'.encode('utf-8')).decode('ascii'),
-                      raw_mime)
+        # just check the alternative made it into the message (assume that Django knows how to format it properly)
+        self.assertIn("\nContent-Type: application/json\n", raw_mime)
 
     def test_multiple_from(self):
         # Amazon SES does not support multiple addresses in the From header
