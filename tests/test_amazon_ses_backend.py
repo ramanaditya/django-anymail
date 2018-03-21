@@ -217,10 +217,13 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         self.assertIn("\nContent-Type: application/json\n", raw_mime)
 
     def test_multiple_from(self):
-        # Amazon SES does not support multiple addresses in the From header
+        # Amazon allows multiple addresses in the From header, but must specify which is Source
         self.message.from_email = "from1@example.com, from2@example.com"
-        with self.assertRaisesMessage(AnymailUnsupportedFeature, "multiple from emails"):
-            self.message.send()
+        self.message.send()
+        params = self.get_send_params()
+        raw_mime = params['RawMessage']['Data']
+        self.assertIn("\nFrom: from1@example.com, from2@example.com\n", raw_mime)
+        self.assertEqual(params['Source'], "from1@example.com")
 
     def test_api_failure(self):
         error_response = {

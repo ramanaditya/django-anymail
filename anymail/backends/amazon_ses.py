@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 from .base import AnymailBaseBackend, BasePayload
 from ..exceptions import AnymailAPIError, AnymailImproperlyInstalled
 from ..message import AnymailRecipientStatus
@@ -98,14 +96,12 @@ class AmazonSESPayload(BasePayload):
         if attr in self.defaults:
             self.unsupported_feature("Anymail send defaults for '%s' with Amazon SES" % attr)
 
-    # def set_from_email_list(self, emails):
-    #   Multiple values in From header will result in "An error occurred (InvalidParameterValue)
-    #   when calling the SendRawEmail operation: Illegal address" (without mentioning which field
-    #   has the illegal address). Better to just use Anymail's base unsupported_feature warning.
-
-    def set_from_email(self, email):
-        # included in mime_message
-        self._no_send_defaults("from_email")
+    def set_from_email_list(self, emails):
+        # Although Amazon SES will send messages with any From header, it can only parse Source
+        # if the From header is a single email. Explicit Source avoids an "Illegal address" error:
+        if len(emails) > 1:
+            self.params["Source"] = emails[0].addr_spec
+        # (else SES will look at the (single) address in the From header)
 
     def set_recipients(self, recipient_type, emails):
         self.all_recipients += emails
