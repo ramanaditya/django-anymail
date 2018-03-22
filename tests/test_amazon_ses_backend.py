@@ -24,11 +24,12 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
     def setUp(self):
         super(AmazonSESBackendMockAPITestCase, self).setUp()
 
-        # Mock boto3.client('ses').send_raw_email
+        # Mock boto3.client('ses').send_raw_email (and any other client operations)
         # (We could also use botocore.stub.Stubber, but mock works well with our test structure)
         self.patch_boto3_client = patch('anymail.backends.amazon_ses.boto3.client', autospec=True)
         self.mock_client = self.patch_boto3_client.start()
         self.addCleanup(self.patch_boto3_client.stop)
+        self.mock_client_instance = self.mock_client.return_value
         self.set_mock_response()
 
         # Simple message useful for many tests
@@ -51,12 +52,12 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
     }
 
     def set_mock_response(self, response=None, operation_name="send_raw_email"):
-        mock_operation = getattr(self.mock_client(), operation_name)
+        mock_operation = getattr(self.mock_client_instance, operation_name)
         mock_operation.return_value = response or self.DEFAULT_SEND_RESPONSE
         return mock_operation.return_value
 
     def set_mock_failure(self, response, operation_name="send_raw_email"):
-        mock_operation = getattr(self.mock_client(), operation_name)
+        mock_operation = getattr(self.mock_client_instance, operation_name)
         mock_operation.side_effect = ClientError(response, operation_name=operation_name)
 
     def get_client_params(self, service="ses"):
@@ -78,7 +79,7 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
         Fails test if API wasn't called.
         """
         self.mock_client.assert_called_with("ses")
-        mock_operation = getattr(self.mock_client(), operation_name)
+        mock_operation = getattr(self.mock_client_instance, operation_name)
         if mock_operation.call_args is None:
             raise AssertionError("API was not called")
         (args, kwargs) = mock_operation.call_args
@@ -89,11 +90,10 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
         params = self.get_send_params(operation_name="send_raw_email")  # (other operations don't have raw mime param)
         raw_mime = params['RawMessage']['Data']
         parsed = AnymailInboundMessage.parse_raw_mime(raw_mime)
-        parsed._original_raw_mime = raw_mime
         return parsed
 
     def assert_esp_not_called(self, msg=None, operation_name="send_raw_email"):
-        mock_operation = getattr(self.mock_client(), operation_name)
+        mock_operation = getattr(self.mock_client_instance, operation_name)
         if mock_operation.called:
             raise AssertionError(msg or "ESP API was called and shouldn't have been")
 
@@ -194,7 +194,9 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         self.assertEqual(inlines[cid].get_content_bytes(), image_data)
 
         # Make sure neither the html nor the inline image is treated as an attachment:
-        self.assertNotIn('\nContent-Disposition: attachment', sent_message._original_raw_mime)
+        params = self.get_send_params()
+        raw_mime = params['RawMessage']['Data']
+        self.assertNotIn('\nContent-Disposition: attachment', raw_mime)
 
     def test_multiple_html_alternatives(self):
         # Multiple alternatives *are* allowed
