@@ -1,3 +1,9 @@
+import re
+from email.header import Header
+from email.mime.base import MIMEBase
+
+from django.core.mail import BadHeaderError
+
 from .base import AnymailBaseBackend, BasePayload
 from ..exceptions import AnymailAPIError, AnymailImproperlyInstalled
 from ..message import AnymailRecipientStatus
@@ -12,6 +18,32 @@ except ImportError:
 
 # boto3 has several root exception classes; this is meant to cover all of them
 BOTO_BASE_ERRORS = (BotoCoreError, ClientError, ConnectionError)
+
+
+# Work around Python 2 bug in email.message.Message.to_string, where long headers
+# containing commas or semicolons get an extra space inserted after every ',' or ';'
+# not already followed by a space. https://bugs.python.org/issue25257
+if Header("test,Python2,header,comma,bug", maxlinelen=20).encode() == "test,Python2,header,comma,bug":
+    # no workaround needed
+    def add_header(message, name, val):
+        message[name] = val
+
+else:
+    # workaround: custom Header subclass that won't consider ',' and ';' as folding candidates
+
+    class HeaderBugWorkaround(Header):
+        def encode(self, splitchars=' ', **kwargs):  # only split on spaces, rather than splitchars=';, '
+            return Header.encode(self, splitchars, **kwargs)
+
+    def add_header(message, name, val):
+        # Must bypass Django's SafeMIMEMessage.__set_item__, because its call to
+        # forbid_multi_line_headers converts the val back to a str, undoing this
+        # workaround. That makes this code responsible for sanitizing val:
+        if '\n' in val or '\r' in val:
+            raise BadHeaderError("Header values can't contain newlines (got %r for header %r)" % (val, name))
+        val = HeaderBugWorkaround(val, header_name=name)
+        assert isinstance(message, MIMEBase)
+        MIMEBase.__setitem__(message, name, val)
 
 
 class EmailBackend(AnymailBaseBackend):
@@ -110,6 +142,7 @@ class AmazonSESPayload(BasePayload):
         self._no_send_defaults(recipient_type)
 
     def set_subject(self, subject):
+        # TODO: consider using HeaderBugWorkaround here, too
         # included in mime_message
         self._no_send_defaults("subject")
 
@@ -148,15 +181,28 @@ class AmazonSESPayload(BasePayload):
         self.params["Destinations"] = [email.addr_spec for email in self.all_recipients]
 
     def set_metadata(self, metadata):
-        # Anymail metadata dict becomes individual SES name:value Tags
-        # TODO: AWS Tags are very restrictive on values (e.g., no spaces or commas); should we offer optional encoding?
+        # Amazon SES has two mechanisms for adding custom data to a message:
+        # * Custom message headers are available to webhooks (SNS notifications),
+        #   but not in CloudWatch metrics/dashboards or Kinesis Firehose streams.
+        # * "Message Tags" are available to CloudWatch and Firehose, but not SNS.
+        #   (Message Tags also allow *very* limited characters.)
+        # (See "How do message tags work?" in https://aws.amazon.com/blogs/ses/introducing-sending-metrics/
+        # and https://forums.aws.amazon.com/thread.jspa?messageID=782922.)
+        #
+        # Anymail metadata is useful in all these contexts, so use both mechanisms.
+        # (Same logic applies to Anymail tags.)
+        add_header(self.mime_message, "X-Metadata", self.serialize_json(metadata))
         self.params.setdefault("Tags", []).extend(
-            {"Name": key, "Value": str(value)} for key, value in metadata.items())
+            {"Name": self._clean_tag(key), "Value": self._clean_tag(value)}
+            for key, value in metadata.items())
 
     def set_tags(self, tags):
-        # Anymail tags list becomes SES Tags["TagN"] values
-        self.params.setdefault("Tags", []).extend(
-            {"Name": "Tag%d" % n, "Value": tags[n]} for n in range(len(tags)))
+        # (See note about Amazon SES Message Tags and custom headers in set_metadata above)
+        for tag in tags:
+            add_header(self.mime_message, "X-Tag", tag)  # creates multiple X-Tag headers, one per tag
+        cleaned_tags = "__".join(self._clean_tag(tag) for tag in tags)
+        self.params.setdefault("Tags", []).append(
+            {"Name": "Tags", "Value": cleaned_tags})
 
     def set_template_id(self, template_id):
         # TODO: implement send_templated_email (uses different payload format; can't support attachments, etc.)
@@ -173,3 +219,21 @@ class AmazonSESPayload(BasePayload):
     def set_esp_extra(self, extra):
         # e.g., ConfigurationSetName, FromArn, SourceArn, ReturnPathArn
         self.params.update(extra)
+
+    @staticmethod
+    def _clean_tag(s):
+        """Return a version of str s transformed for use as an AWS `Tags` name or value.
+
+        AWS Tags allow only a-z, A-Z, 0-9, hyphen and underscore characters. (No spaces.)
+
+        This transformation:
+        * Makes no changes to strings that are already valid AWS Tags
+        * Converts each group of whitespace characters to a single underscore
+        * Converts each group of other prohibited characters to a single hyphen
+
+        The result is meant to be usefully readable, but the transformation is not reversable.
+        """
+        s = str(s)
+        s = re.sub(r'\s+', '_', s)  # whitespace to single underscore
+        s = re.sub(r'[^A-Za-z0-9_\-]+', '-', s)  # everything else to single hyphens
+        return s

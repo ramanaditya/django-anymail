@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 
 from datetime import datetime
 from email.mime.application import MIMEApplication
+from unittest import skipIf
 
 from botocore.exceptions import ClientError
 from django.core import mail
@@ -13,8 +14,9 @@ from mock import patch
 from anymail.exceptions import AnymailAPIError, AnymailUnsupportedFeature
 from anymail.inbound import AnymailInboundMessage
 from anymail.message import attach_inline_image_file
-
-from .utils import AnymailTestMixin, SAMPLE_IMAGE_FILENAME, sample_image_path, sample_image_content
+from .utils import (
+    AnymailTestMixin, SAMPLE_IMAGE_FILENAME, python_has_broken_mime_param_handling,
+    sample_image_content, sample_image_path)
 
 
 @override_settings(EMAIL_BACKEND='anymail.backends.amazon_ses.EmailBackend')
@@ -135,6 +137,9 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         self.assertIn("\nCc: cc@xn--th-e0a.example.com\n", raw_mime)
         # SES doesn't support non-ASCII in the username@ part (RFC 6531 "SMTPUTF8" extension)
 
+    @skipIf(python_has_broken_mime_param_handling(),
+            "This Python has a buggy email package that crashes on non-ASCII "
+            "characters in RFC2231-encoded MIME header parameters")
     def test_attachments(self):
         text_content = "• Item one\n• Item two\n• Item three"  # those are \u2022 bullets ("\N{BULLET}")
         self.message.attach(filename="Une pièce jointe.txt",  # utf-8 chars in filename
@@ -289,15 +294,22 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
         self.assertNotIn("envelope-to@example.com", raw_mime)
 
     def test_metadata(self):
-        # Anymail converts metadata to Amazon SES name:value Tags.
-        # Note that both names and values have a very limited character set
-        # (no spaces, no commas, the only punctuation allowed is underscore and hyphen)
-        self.message.metadata = {'user_id': 12345, 'items': 'horse-battery-staple'}
+        self.message.metadata = {
+            'User ID': 12345, 'items': 'Correct horse,Battery,\nStaple', 'Cart-Total': '22.70'}
         self.message.send()
+
+        # Metadata is passed as JSON in a message header field:
+        sent_message = self.get_sent_message()
+        self.assertJSONEqual(
+            sent_message["X-Metadata"],
+            '{"User ID": 12345, "items": "Correct horse,Battery,\\nStaple", "Cart-Total": "22.70"}')
+
+        # Metadata is also encoded as SES "Message Tags", transformed for Amazon tag limitations
         params = self.get_send_params()
         self.assertCountEqual(params['Tags'], [
-            {"Name": "user_id", "Value": "12345"},  # value converted to str
-            {"Name": "items", "Value": "horse-battery-staple"},
+            {"Name": "User_ID", "Value": "12345"},
+            {"Name": "items", "Value": "Correct_horse-Battery-_Staple"},
+            {"Name": "Cart-Total", "Value": "22-70"},
         ])
 
     def test_send_at(self):
@@ -307,14 +319,19 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
             self.message.send()
 
     def test_tags(self):
-        # Anymail converts tags list to multiple Amazon SES name:value Tags,
-        # where each Anymail tag becomes a tag named TagN:
-        self.message.tags = ["receipt", "repeat-user"]
+        self.message.tags = ["Transactional", "Cohort 12/2017"]
         self.message.send()
+
+        # Tags are added as multiple X-Tag message headers:
+        sent_message = self.get_sent_message()
+        self.assertCountEqual(sent_message.get_all("X-Tag"),
+                              ["Transactional", "Cohort 12/2017"])
+
+        # Tags are also converted to a single SES "Message Tag" named Tags,
+        # transformed for Amazon tag limitations, and separated by double underscores:
         params = self.get_send_params()
-        self.assertCountEqual(params['Tags'], [
-            {"Name": "Tag0", "Value": "receipt"},
-            {"Name": "Tag1", "Value": "repeat-user"},
+        self.assertEqual(params['Tags'], [
+            {"Name": "Tags", "Value": "Transactional__Cohort_12-2017"},
         ])
 
     def test_tracking(self):
