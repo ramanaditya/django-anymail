@@ -1,5 +1,6 @@
 from django.conf.urls import url
 
+from .webhooks.amazon_ses import AmazonSESTrackingWebhookView
 from .webhooks.mailgun import MailgunInboundWebhookView, MailgunTrackingWebhookView
 from .webhooks.mailjet import MailjetInboundWebhookView, MailjetTrackingWebhookView
 from .webhooks.mandrill import MandrillCombinedWebhookView
@@ -17,6 +18,7 @@ urlpatterns = [
     url(r'^sendgrid/inbound/$', SendGridInboundWebhookView.as_view(), name='sendgrid_inbound_webhook'),
     url(r'^sparkpost/inbound/$', SparkPostInboundWebhookView.as_view(), name='sparkpost_inbound_webhook'),
 
+    url(r'^amazon_ses/tracking/$', AmazonSESTrackingWebhookView.as_view(), name='amazon_ses_tracking_webhook'),
     url(r'^mailgun/tracking/$', MailgunTrackingWebhookView.as_view(), name='mailgun_tracking_webhook'),
     url(r'^mailjet/tracking/$', MailjetTrackingWebhookView.as_view(), name='mailjet_tracking_webhook'),
     url(r'^postmark/tracking/$', PostmarkTrackingWebhookView.as_view(), name='postmark_tracking_webhook'),
