@@ -45,6 +45,7 @@ class AmazonSESWebhookSecurityTests(WebhookTestCase, AmazonSESWebhookTestsMixin,
 
 class AmazonSESNotificationsTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
     def test_bounce_event(self):
+        # This test includes a complete Amazon SES example event. (Later tests omit some payload for brevity.)
         # https://docs.aws.amazon.com/ses/latest/DeveloperGuide/notification-examples.html#notification-examples-bounce
         raw_ses_event = {
             "notificationType": "Bounce",
@@ -55,12 +56,12 @@ class AmazonSESNotificationsTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
                     "emailAddress": "jane@example.com",
                     "status": "5.1.1",
                     "action": "failed",
-                    "diagnosticCode": "smtp; 550 5.1.1 <jane@example.com>... User unknown"
+                    "diagnosticCode": "smtp; 550 5.1.1 <jane@example.com>... User unknown",
                 }],
                 "bounceSubType": "General",
                 "timestamp": "2016-01-27T14:59:44.101Z",  # when bounce sent (by receiving ISP)
                 "feedbackId": "00000138111222aa-44455566-cccc-cccc-cccc-ddddaaaa068a-000000",  # unique id for bounce
-                "remoteMtaIp": "127.0.2.0"
+                "remoteMtaIp": "127.0.2.0",
             },
             "mail": {
                 "timestamp": "2016-01-27T14:59:38.237Z",  # when message sent
@@ -79,7 +80,10 @@ class AmazonSESNotificationsTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
                     {"name": "Subject", "value": "Hello"},
                     {"name": "Content-Type", "value": 'text/plain; charset="UTF-8"'},
                     {"name": "Content-Transfer-Encoding", "value": "base64"},
-                    {"name": "Date", "value": "Wed, 27 Jan 2016 14:05:45 +0000"}
+                    {"name": "Date", "value": "Wed, 27 Jan 2016 14:05:45 +0000"},
+                    {"name": "X-Tag", "value": "tag 1"},
+                    {"name": "X-Tag", "value": "tag 2"},
+                    {"name": "X-Metadata", "value": '{"meta1":"string","meta2":2}'},
                 ],
                 "commonHeaders": {
                     "from": ["John Doe <john@example.com>"],
@@ -87,11 +91,11 @@ class AmazonSESNotificationsTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
                     "to": ["Jane Doe <jane@example.com>, Mary Doe <mary@example.com>,"
                            " Richard Doe <richard@example.com>"],
                     "messageId": "custom-message-ID",
-                    "subject": "Hello"
-                }
-            }
+                    "subject": "Hello",
+                },
+            },
         }
-        raw_sns_event = {
+        raw_sns_message = {
             "Type": "Notification",
             "MessageId": "19ba9823-d7f2-53c1-860e-cb10e0d13dfc",  # unique id for SNS event
             "TopicArn": "arn:aws:sns:us-east-1:1234567890:SES_Events",
@@ -104,7 +108,7 @@ class AmazonSESNotificationsTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
             "UnsubscribeURL": "https://sns.us-east-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=arn...",
         }
 
-        response = self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_event)
+        response = self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
         self.assertEqual(response.status_code, 200)
         kwargs = self.assert_handler_called_once_with(self.tracking_handler, sender=AmazonSESTrackingWebhookView,
                                                       event=ANY, esp_name='Amazon SES')
@@ -112,14 +116,277 @@ class AmazonSESNotificationsTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
         self.assertIsInstance(event, AnymailTrackingEvent)
         self.assertEqual(event.event_type, "bounced")
         self.assertEqual(event.esp_event, raw_ses_event)
-        self.assertEqual(event.timestamp, datetime(2016, 1, 27, 14, 59, 44, microsecond=101000, tzinfo=utc))
+        self.assertEqual(event.timestamp, datetime(2018, 3, 26, 17, 58, 59, microsecond=675000, tzinfo=utc))  # SNS
         self.assertEqual(event.message_id, "00000138111222aa-33322211-cccc-cccc-cccc-ddddaaaa0680-000000")
         self.assertEqual(event.event_id, "19ba9823-d7f2-53c1-860e-cb10e0d13dfc")
         self.assertEqual(event.recipient, "jane@example.com")
         self.assertEqual(event.reject_reason, "bounced")
-        self.assertEqual(event.description,
-                         "The server was unable to deliver your message (ex: unknown user, mailbox not found).")
+        self.assertEqual(event.description, "Permanent: General")
         self.assertEqual(event.mta_response, "smtp; 550 5.1.1 <jane@example.com>... User unknown")
+        self.assertEqual(event.tags, ["tag 1", "tag 2"])
+        self.assertEqual(event.metadata, {"meta1": "string", "meta2": 2})
+
+    # For brevity, remaining tests omit some event fields that aren't used by Anymail
+
+    def test_multiple_bounce_event(self):
+        """Amazon SES notification can cover multiple recipients"""
+        raw_ses_event = {
+            "notificationType": "Bounce",
+            "bounce": {
+                "bounceType": "Permanent",
+                "bounceSubType": "General",
+                "bouncedRecipients": [
+                    {"emailAddress": "jane@example.com"},
+                    {"emailAddress": "richard@example.com"}
+                ],
+            },
+            "mail": {
+                "messageId": "00000137860315fd-34208509-5b74-41f3-95c5-22c1edc3c924-000000",
+                "destination": ["jane@example.com", "mary@example.com", "richard@example.com"],
+            }
+        }
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "19ba9823-d7f2-53c1-860e-cb10e0d13dfc",
+            "Message": json.dumps(raw_ses_event) + "\n",
+            "Timestamp": "2018-03-26T17:58:59.675Z",
+        }
+        response = self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
+        self.assertEqual(response.status_code, 200)
+
+        # tracking handler should be called twice -- once for each bounced recipient
+        # (but not for the third, non-bounced recipient)
+        self.assertEqual(self.tracking_handler.call_count, 2)
+
+        _, kwargs = self.tracking_handler.call_args_list[0]
+        event = kwargs['event']
+        self.assertEqual(event.event_type, "bounced")
+        self.assertEqual(event.recipient, "jane@example.com")
+        self.assertEqual(event.description, "Permanent: General")
+        self.assertIsNone(event.mta_response)
+
+        _, kwargs = self.tracking_handler.call_args_list[1]
+        event = kwargs['event']
+        self.assertEqual(event.esp_event, raw_ses_event)
+        self.assertEqual(event.recipient, "richard@example.com")
+
+    def test_complaint_event(self):
+        raw_ses_event = {
+            "notificationType": "Complaint",
+            "complaint": {
+                "userAgent": "AnyCompany Feedback Loop (V0.01)",
+                "complainedRecipients": [{"emailAddress": "richard@example.com"}],
+                "complaintFeedbackType": "abuse",
+            },
+            "mail": {
+                "messageId": "000001378603177f-7a5433e7-8edb-42ae-af10-f0181f34d6ee-000000",
+                "destination": ["jane@example.com", "mary@example.com", "richard@example.com"],
+            }
+        }
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "19ba9823-d7f2-53c1-860e-cb10e0d13dfc",
+            "Message": json.dumps(raw_ses_event) + "\n",
+            "Timestamp": "2018-03-26T17:58:59.675Z",
+        }
+        response = self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
+        self.assertEqual(response.status_code, 200)
+        kwargs = self.assert_handler_called_once_with(self.tracking_handler, sender=AmazonSESTrackingWebhookView,
+                                                      event=ANY, esp_name='Amazon SES')
+        event = kwargs['event']
+        self.assertEqual(event.event_type, "complained")
+        self.assertEqual(event.recipient, "richard@example.com")
+        self.assertEqual(event.reject_reason, "spam")
+        self.assertEqual(event.description, "abuse")
+        self.assertEqual(event.user_agent, "AnyCompany Feedback Loop (V0.01)")
+
+    def test_delivery_event(self):
+        raw_ses_event = {
+            "notificationType": "Delivery",
+            "mail": {
+                "timestamp": "2016-01-27T14:59:38.237Z",
+                "messageId": "0000014644fe5ef6-9a483358-9170-4cb4-a269-f5dcdf415321-000000",
+                "destination": ["jane@example.com", "mary@example.com", "richard@example.com"],
+            },
+            "delivery": {
+                "timestamp": "2016-01-27T14:59:38.237Z",
+                "recipients": ["jane@example.com"],
+                "processingTimeMillis": 546,
+                "reportingMTA": "a8-70.smtp-out.amazonses.com",
+                "smtpResponse": "250 ok:  Message 64111812 accepted",
+                "remoteMtaIp": "127.0.2.0"
+            }
+        }
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "19ba9823-d7f2-53c1-860e-cb10e0d13dfc",
+            "Message": json.dumps(raw_ses_event) + "\n",
+            "Timestamp": "2018-03-26T17:58:59.675Z",
+        }
+        response = self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
+        self.assertEqual(response.status_code, 200)
+        kwargs = self.assert_handler_called_once_with(self.tracking_handler, sender=AmazonSESTrackingWebhookView,
+                                                      event=ANY, esp_name='Amazon SES')
+        event = kwargs['event']
+        self.assertEqual(event.event_type, "delivered")
+        self.assertEqual(event.recipient, "jane@example.com")
+        self.assertEqual(event.mta_response, "250 ok:  Message 64111812 accepted")
+
+    def test_send_event(self):
+        raw_ses_event = {
+            "eventType": "Send",
+            "mail": {
+                "timestamp": "2016-10-14T05:02:16.645Z",
+                "messageId": "7c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000",
+                "destination": ["recipient@example.com"],
+                "tags": {
+                    "ses:configuration-set": ["ConfigSet"],
+                    "ses:source-ip": ["192.0.2.0"],
+                    "ses:from-domain": ["example.com"],
+                    "ses:caller-identity": ["ses_user"],
+                    "myCustomTag1": ["myCustomTagValue1"],
+                    "myCustomTag2": ["myCustomTagValue2"]
+                }
+            },
+            "send": {}
+        }
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "19ba9823-d7f2-53c1-860e-cb10e0d13dfc",
+            "Message": json.dumps(raw_ses_event) + "\n",
+            "Timestamp": "2018-03-26T17:58:59.675Z",
+        }
+        response = self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
+        self.assertEqual(response.status_code, 200)
+        kwargs = self.assert_handler_called_once_with(self.tracking_handler, sender=AmazonSESTrackingWebhookView,
+                                                      event=ANY, esp_name='Amazon SES')
+        event = kwargs['event']
+        self.assertIsInstance(event, AnymailTrackingEvent)
+        self.assertEqual(event.event_type, "sent")
+        self.assertEqual(event.esp_event, raw_ses_event)
+        self.assertEqual(event.timestamp, datetime(2018, 3, 26, 17, 58, 59, microsecond=675000, tzinfo=utc))  # SNS
+        self.assertEqual(event.message_id, "7c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000")
+        self.assertEqual(event.event_id, "19ba9823-d7f2-53c1-860e-cb10e0d13dfc")
+        self.assertEqual(event.recipient, "recipient@example.com")
+        self.assertEqual(event.tags, [])  # Anymail doesn't load Amazon SES "Message Tags"
+        self.assertEqual(event.metadata, {})
+
+    def test_reject_event(self):
+        raw_ses_event = {
+            "eventType": "Reject",
+            "mail": {
+                "timestamp": "2016-10-14T17:38:15.211Z",
+                "messageId": "7c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000",
+                "destination": ["recipient@example.com"],
+            },
+            "reject": {
+                "reason": "Bad content"
+            }
+        }
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "19ba9823-d7f2-53c1-860e-cb10e0d13dfc",
+            "Message": json.dumps(raw_ses_event) + "\n",
+            "Timestamp": "2018-03-26T17:58:59.675Z",
+        }
+        response = self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
+        self.assertEqual(response.status_code, 200)
+        kwargs = self.assert_handler_called_once_with(self.tracking_handler, sender=AmazonSESTrackingWebhookView,
+                                                      event=ANY, esp_name='Amazon SES')
+        event = kwargs['event']
+        self.assertEqual(event.event_type, "rejected")
+        self.assertEqual(event.reject_reason, "blocked")
+        self.assertEqual(event.description, "Bad content")
+        self.assertEqual(event.recipient, "recipient@example.com")
+
+    def test_open_event(self):
+        raw_ses_event = {
+            "eventType": "Open",
+            "mail": {
+                "destination": ["recipient@example.com"],
+                "messageId": "7c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000",
+            },
+            "open": {
+                "ipAddress": "192.0.2.1",
+                "timestamp": "2017-08-09T22:00:19.652Z",
+                "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_3 like Mac OS X)..."
+            }
+        }
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "19ba9823-d7f2-53c1-860e-cb10e0d13dfc",
+            "Message": json.dumps(raw_ses_event) + "\n",
+            "Timestamp": "2018-03-26T17:58:59.675Z",
+        }
+        response = self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
+        self.assertEqual(response.status_code, 200)
+        kwargs = self.assert_handler_called_once_with(self.tracking_handler, sender=AmazonSESTrackingWebhookView,
+                                                      event=ANY, esp_name='Amazon SES')
+        event = kwargs['event']
+        self.assertEqual(event.event_type, "opened")
+        self.assertEqual(event.recipient, "recipient@example.com")
+        self.assertEqual(event.user_agent, "Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_3 like Mac OS X)...")
+
+    def test_click_event(self):
+        raw_ses_event = {
+            "eventType": "Click",
+            "click": {
+                "ipAddress": "192.0.2.1",
+                "link": "https://docs.aws.amazon.com/ses/latest/DeveloperGuide/",
+                "linkTags": {
+                    "samplekey0": ["samplevalue0"],
+                    "samplekey1": ["samplevalue1"],
+                },
+                "timestamp": "2017-08-09T23:51:25.570Z",
+                "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36..."
+            },
+            "mail": {
+                "destination": ["recipient@example.com"],
+                "messageId": "7c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000",
+            }
+        }
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "19ba9823-d7f2-53c1-860e-cb10e0d13dfc",
+            "Message": json.dumps(raw_ses_event) + "\n",
+            "Timestamp": "2018-03-26T17:58:59.675Z",
+        }
+        response = self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
+        self.assertEqual(response.status_code, 200)
+        kwargs = self.assert_handler_called_once_with(self.tracking_handler, sender=AmazonSESTrackingWebhookView,
+                                                      event=ANY, esp_name='Amazon SES')
+        event = kwargs['event']
+        self.assertEqual(event.event_type, "clicked")
+        self.assertEqual(event.recipient, "recipient@example.com")
+        self.assertEqual(event.user_agent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...")
+        self.assertEqual(event.click_url, "https://docs.aws.amazon.com/ses/latest/DeveloperGuide/")
+
+    def test_rendering_failure_event(self):
+        raw_ses_event = {
+            "eventType": "Rendering Failure",
+            "mail": {
+                "messageId": "c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000",
+                "destination": ["recipient@example.com"],
+            },
+            "failure": {
+                "errorMessage": "Attribute 'attributeName' is not present in the rendering data.",
+                "templateName": "MyTemplate"
+            }
+        }
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "19ba9823-d7f2-53c1-860e-cb10e0d13dfc",
+            "Message": json.dumps(raw_ses_event) + "\n",
+            "Timestamp": "2018-03-26T17:58:59.675Z",
+        }
+        response = self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
+        self.assertEqual(response.status_code, 200)
+        kwargs = self.assert_handler_called_once_with(self.tracking_handler, sender=AmazonSESTrackingWebhookView,
+                                                      event=ANY, esp_name='Amazon SES')
+        event = kwargs['event']
+        self.assertEqual(event.event_type, "failed")
+        self.assertEqual(event.recipient, "recipient@example.com")
+        self.assertEqual(event.description, "Attribute 'attributeName' is not present in the rendering data.")
 
 
 class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTestsMixin):

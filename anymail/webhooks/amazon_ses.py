@@ -7,7 +7,7 @@ from django.utils.dateparse import parse_datetime
 from .base import AnymailBaseWebhookView
 from ..exceptions import AnymailWebhookValidationFailure
 from ..signals import tracking, AnymailTrackingEvent, EventType, RejectReason
-from ..utils import get_anymail_setting
+from ..utils import get_anymail_setting, getfirst, combine
 
 
 class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
@@ -130,4 +130,117 @@ class AmazonSESTrackingWebhookView(AmazonSESBaseWebhookView):
     signal = tracking
 
     def esp_to_anymail_events(self, ses_event, sns_message):
-        return []  # TODO
+        # Amazon SES has two notification formats, which are almost exactly the same:
+        # - https://docs.aws.amazon.com/ses/latest/DeveloperGuide/event-publishing-retrieving-sns-contents.html
+        # - https://docs.aws.amazon.com/ses/latest/DeveloperGuide/notification-contents.html
+        # This code should handle either.
+        event_id = sns_message.get("MessageId")  # unique to the SNS notification
+        try:
+            timestamp = parse_datetime(sns_message["Timestamp"])
+        except (KeyError, ValueError):
+            timestamp = None
+
+        mail_object = ses_event.get("mail", {})
+        message_id = mail_object.get("messageId")  # same as MessageId in SendRawEmail response
+        all_recipients = mail_object.get("destination", [])
+
+        # Recover tags and metadata from custom headers
+        metadata = {}
+        tags = []
+        for header in mail_object.get("headers", []):
+            name = header["name"].lower()
+            if name == "x-tag":
+                tags.append(header["value"])
+            elif name == "x-metadata":
+                try:
+                    metadata = json.loads(header["value"])
+                except (ValueError, TypeError, KeyError):
+                    pass
+
+        common_props = dict(  # AnymailTrackingEvent props for all recipients
+            esp_event=ses_event,
+            event_id=event_id,
+            message_id=message_id,
+            metadata=metadata,
+            tags=tags,
+            timestamp=timestamp,
+        )
+        per_recipient_props = [  # generate individual events for each of these
+            dict(recipient=email_address)
+            for email_address in all_recipients
+        ]
+
+        ses_event_type = getfirst(ses_event, ["eventType", "notificationType"], "<<type missing>>")
+        event_object = ses_event.get(ses_event_type.lower(), {})  # e.g., ses_event["bounce"]
+
+        if ses_event_type == "Bounce":
+            common_props.update(
+                event_type=EventType.BOUNCED,
+                description="{bounceType}: {bounceSubType}".format(**event_object),
+                reject_reason=RejectReason.BOUNCED,
+            )
+            per_recipient_props = [dict(
+                recipient=recipient["emailAddress"],
+                mta_response=recipient.get("diagnosticCode"),
+            ) for recipient in event_object["bouncedRecipients"]]
+        elif ses_event_type == "Complaint":
+            common_props.update(
+                event_type=EventType.COMPLAINED,
+                description=event_object.get("complaintFeedbackType"),
+                reject_reason=RejectReason.SPAM,
+                user_agent=event_object.get("userAgent"),
+            )
+            per_recipient_props = [dict(
+                recipient=recipient["emailAddress"],
+            ) for recipient in event_object["complainedRecipients"]]
+        elif ses_event_type == "Delivery":
+            common_props.update(
+                event_type=EventType.DELIVERED,
+                mta_response=event_object.get("smtpResponse"),
+            )
+            per_recipient_props = [dict(
+                recipient=recipient,
+            ) for recipient in event_object["recipients"]]
+        elif ses_event_type == "Send":
+            common_props.update(
+                event_type=EventType.SENT,
+            )
+        elif ses_event_type == "Reject":
+            common_props.update(
+                event_type=EventType.REJECTED,
+                description=event_object["reason"],
+                reject_reason=RejectReason.BLOCKED,
+            )
+        elif ses_event_type == "Open":
+            # SES doesn't report which recipient opened the message (it doesn't
+            # track them separately), so just report it for all_recipients
+            common_props.update(
+                event_type=EventType.OPENED,
+                user_agent=event_object.get("userAgent"),
+            )
+        elif ses_event_type == "Click":
+            # SES doesn't report which recipient clicked the message (it doesn't
+            # track them separately), so just report it for all_recipients
+            common_props.update(
+                event_type=EventType.CLICKED,
+                user_agent=event_object.get("userAgent"),
+                click_url=event_object.get("link"),
+            )
+        elif ses_event_type == "Rendering Failure":
+            event_object = ses_event["failure"]  # rather than ses_event["rendering failure"]
+            common_props.update(
+                event_type=EventType.FAILED,
+                description=event_object["errorMessage"],
+            )
+        else:
+            # Umm... new event type?
+            common_props.update(
+                event_type=EventType.UNKNOWN,
+                description="Unknown SES eventType '%s'" % ses_event_type,
+            )
+
+        return [
+            # AnymailTrackingEvent(**common_props, **recipient_props)  # Python 3.5+ (PEP-448 syntax)
+            AnymailTrackingEvent(**combine(common_props, recipient_props))
+            for recipient_props in per_recipient_props
+        ]
