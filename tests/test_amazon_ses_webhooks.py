@@ -6,7 +6,7 @@ from django.test import override_settings
 from django.utils.timezone import utc
 from mock import ANY, patch
 
-from anymail.exceptions import AnymailInsecureWebhookWarning
+from anymail.exceptions import AnymailConfigurationError, AnymailInsecureWebhookWarning
 from anymail.signals import AnymailTrackingEvent
 from anymail.webhooks.amazon_ses import AmazonSESTrackingWebhookView
 
@@ -387,6 +387,21 @@ class AmazonSESNotificationsTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
         self.assertEqual(event.event_type, "failed")
         self.assertEqual(event.recipient, "recipient@example.com")
         self.assertEqual(event.description, "Attribute 'attributeName' is not present in the rendering data.")
+
+    def test_incorrect_received_event(self):
+        """The tracking webhook should warn if it receives inbound events"""
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "8f6dee70-c885-558a-be7d-bd48bbf5335e",
+            "TopicArn": "arn:aws:sns:us-east-1:111111111111:SES_Inbound",
+            "Message": '{"notificationType": "Received"}',
+        }
+        with self.assertRaisesMessage(
+            AnymailConfigurationError,
+            "You seem to have set an Amazon SES *inbound* receipt rule to publish to an SNS Topic that posts "
+            "to Anymail's *tracking* webhook URL. (SNS TopicArn arn:aws:sns:us-east-1:111111111111:SES_Inbound)"
+        ):
+            self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
 
 
 class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTestsMixin):

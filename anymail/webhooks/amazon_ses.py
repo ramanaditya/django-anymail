@@ -1,13 +1,15 @@
 import json
+from base64 import b64decode
 
 import requests
 from django.http import HttpResponse
 from django.utils.dateparse import parse_datetime
 
 from .base import AnymailBaseWebhookView
-from ..exceptions import AnymailWebhookValidationFailure
-from ..signals import tracking, AnymailTrackingEvent, EventType, RejectReason
-from ..utils import get_anymail_setting, getfirst, combine
+from ..exceptions import AnymailConfigurationError, AnymailWebhookValidationFailure
+from ..inbound import AnymailInboundMessage
+from ..signals import AnymailInboundEvent, AnymailTrackingEvent, EventType, RejectReason, inbound, tracking
+from ..utils import combine, get_anymail_setting, getfirst
 
 
 class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
@@ -134,6 +136,14 @@ class AmazonSESTrackingWebhookView(AmazonSESBaseWebhookView):
         # - https://docs.aws.amazon.com/ses/latest/DeveloperGuide/event-publishing-retrieving-sns-contents.html
         # - https://docs.aws.amazon.com/ses/latest/DeveloperGuide/notification-contents.html
         # This code should handle either.
+        ses_event_type = getfirst(ses_event, ["eventType", "notificationType"], "<<type missing>>")
+        if ses_event_type == "Received":
+            # This is an inbound event
+            raise AnymailConfigurationError(
+                "You seem to have set an Amazon SES *inbound* receipt rule to publish "
+                "to an SNS Topic that posts to Anymail's *tracking* webhook URL. "
+                "(SNS TopicArn %s)" % sns_message.get("TopicArn"))
+
         event_id = sns_message.get("MessageId")  # unique to the SNS notification
         try:
             timestamp = parse_datetime(sns_message["Timestamp"])
@@ -170,7 +180,6 @@ class AmazonSESTrackingWebhookView(AmazonSESBaseWebhookView):
             for email_address in all_recipients
         ]
 
-        ses_event_type = getfirst(ses_event, ["eventType", "notificationType"], "<<type missing>>")
         event_object = ses_event.get(ses_event_type.lower(), {})  # e.g., ses_event["bounce"]
 
         if ses_event_type == "Bounce":
@@ -244,3 +253,65 @@ class AmazonSESTrackingWebhookView(AmazonSESBaseWebhookView):
             AnymailTrackingEvent(**combine(common_props, recipient_props))
             for recipient_props in per_recipient_props
         ]
+
+
+class AmazonSESInboundWebhookView(AmazonSESBaseWebhookView):
+    """Handler for Amazon SES inbound notifications"""
+
+    signal = inbound
+
+    def esp_to_anymail_events(self, ses_event, sns_message):
+        ses_event_type = ses_event.get("notificationType")
+        if ses_event_type != "Received":
+            # This is not an inbound event
+            raise AnymailConfigurationError(
+                "You seem to have set an Amazon SES *sending* event or notification "
+                "to publish to an SNS Topic that posts to Anymail's *inbound* webhook URL. "
+                "(SNS TopicArn %s)" % sns_message.get("TopicArn"))
+
+        receipt_object = ses_event.get("receipt", {})
+        action_object = receipt_object.get("action", {})
+        mail_object = ses_event.get("mail", {})
+
+        content = ses_event.get("content")
+        if content is None:
+            # if `content` field was missing, this must not have been an SNS action
+            raise AnymailConfigurationError(
+                "Anymail's Amazon SES inbound webhook works only with 'SNS' receipt rule actions, "
+                "not SNS notifications for {action_type!s} actions. (SNS TopicArn {topic_arn!s})"
+                "".format(action_type=action_object.get("type"), topic_arn=sns_message.get("TopicArn")))
+            # TODO: maybe also support S3 action?
+            # (SNS has 15s limit for an http response; S3 download hopefully doesn't take that long)
+            #   s3 = boto3.client("s3", **self.client_params)
+            #   content_io = io.BytesIO()
+            #   s3.download_fileobj(action_object["bucketName"], action_object["objectKey"], content_io)
+            #   message = AnymailInboundMessage.parse_raw_mime_stream(content_io)
+            #   content_io.close()
+
+        content_encoding = action_object.get("encoding", "UTF8")  # undocumented
+        if content_encoding == "BASE64":
+            content = b64decode(content.encode("ascii")).decode("utf-8")  # ("utf-8" isn't necessarily correct here)
+
+        message = AnymailInboundMessage.parse_raw_mime(content)
+        message.envelope_sender = mail_object.get("source")  # "the envelope MAIL FROM address"
+        try:
+            # "recipients that were matched by the active receipt rule"
+            message.envelope_recipient = receipt_object["recipients"][0]
+        except (KeyError, TypeError, IndexError):
+            pass
+        spam_status = receipt_object.get("spamVerdict", {}).get("status", "").upper()
+        message.spam_detected = {"PASS": False, "FAIL": True}.get(spam_status)  # else None if unsure
+
+        event_id = mail_object.get("messageId")  # "unique ID assigned to the email by Amazon SES"
+        try:
+            timestamp = parse_datetime(mail_object["timestamp"])  # "time at which the email was received"
+        except (KeyError, ValueError):
+            timestamp = None
+
+        return [AnymailInboundEvent(
+            event_type=EventType.INBOUND,
+            event_id=event_id,
+            message=message,
+            timestamp=timestamp,
+            esp_event=ses_event,
+        )]
