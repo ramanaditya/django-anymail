@@ -5,11 +5,13 @@ from datetime import datetime
 from email.mime.application import MIMEApplication
 from unittest import skipIf
 
-from botocore.exceptions import ClientError
+import botocore.config
+import botocore.exceptions
 from django.core import mail
+from django.core.mail import BadHeaderError
 from django.test import SimpleTestCase
 from django.test.utils import override_settings
-from mock import patch
+from mock import ANY, patch
 
 from anymail.exceptions import AnymailAPIError, AnymailUnsupportedFeature
 from anymail.inbound import AnymailInboundMessage
@@ -60,7 +62,7 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
 
     def set_mock_failure(self, response, operation_name="send_raw_email"):
         mock_operation = getattr(self.mock_client_instance, operation_name)
-        mock_operation.side_effect = ClientError(response, operation_name=operation_name)
+        mock_operation.side_effect = botocore.exceptions.ClientError(response, operation_name=operation_name)
 
     def get_client_params(self, service="ses"):
         """Returns kwargs params passed to mock boto3.client constructor
@@ -80,7 +82,7 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
 
         Fails test if API wasn't called.
         """
-        self.mock_client.assert_called_with("ses")
+        self.mock_client.assert_called_with("ses", config=ANY)
         mock_operation = getattr(self.mock_client_instance, operation_name)
         if mock_operation.call_args is None:
             raise AssertionError("API was not called")
@@ -163,11 +165,7 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         self.assertEqual(attachments[0].get_content_type(), "text/plain")
         self.assertEqual(attachments[0].get_filename(), "Une pièce jointe.txt")
         self.assertEqual(attachments[0].get_param("charset"), "utf-8")
-        # TODO: fix this bug in get_content_text (get_payload doesn't handle Content-Transfer-Encoding: 8bit)
-        att0_text = attachments[0].get_content_text()
-        if '\\u' in att0_text:  # workaround get_payload(decode=True) bug
-            att0_text = att0_text.encode('ascii').decode("raw-unicode-escape")
-        self.assertEqual(att0_text, text_content)
+        self.assertEqual(attachments[0].get_content_text(), text_content)
 
         self.assertEqual(attachments[1].get_content_type(), "image/png")
         self.assertEqual(attachments[1].get_content_disposition(), "attachment")  # not inline
@@ -232,6 +230,13 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         self.assertIn("\nFrom: from1@example.com, from2@example.com\n", raw_mime)
         self.assertEqual(params['Source'], "from1@example.com")
 
+    def test_commas_in_subject(self):
+        """Anymail works around a Python 2 email header bug that adds unwanted spaces after commas in long subjects"""
+        self.message.subject = "100,000,000 isn't a number you'd really want to break up in this email subject, right?"
+        self.message.send()
+        sent_message = self.get_sent_message()
+        self.assertEqual(sent_message["Subject"], self.message.subject)
+
     def test_api_failure(self):
         error_response = {
             'Error': {
@@ -271,6 +276,20 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         sent = self.message.send(fail_silently=True)
         self.assertEqual(sent, 0)
 
+    def test_prevents_header_injection(self):
+        # Since we build the raw MIME message, we're responsible for preventing header injection.
+        # django.core.mail.EmailMessage.message() implements most of that (for the SMTP backend);
+        # spot check some likely cases just to be sure...
+        with self.assertRaises(BadHeaderError):
+            mail.send_mail('Subject\r\ninjected', 'Body', 'from@example.com', ['to@example.com'])
+        with self.assertRaises(BadHeaderError):
+            mail.send_mail('Subject', 'Body', '"Display-Name\nInjected" <from@example.com>', ['to@example.com'])
+        with self.assertRaises(BadHeaderError):
+            mail.send_mail('Subject', 'Body', 'from@example.com', ['"Display-Name\rInjected" <to@example.com>'])
+        with self.assertRaises(BadHeaderError):
+            mail.EmailMessage('Subject', 'Body', 'from@example.com', ['to@example.com'],
+                              headers={"X-Header": "custom header value\r\ninjected"}).send()
+
 
 class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
     """Test backend support for Anymail added features"""
@@ -294,6 +313,7 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
         self.assertNotIn("envelope-to@example.com", raw_mime)
 
     def test_metadata(self):
+        # (that \n is a header-injection test)
         self.message.metadata = {
             'User ID': 12345, 'items': 'Correct horse,Battery,\nStaple', 'Cart-Total': '22.70'}
         self.message.send()
@@ -411,6 +431,10 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
         self.assertNotIn('TemplateArn', params)
         self.assertNotIn('TemplateData', params)
 
+        sent_message = self.get_sent_message()
+        self.assertNotIn("X-Metadata", sent_message)  # custom headers not added if not needed
+        self.assertNotIn("X-Tag", sent_message)
+
     def test_esp_extra(self):
         # Values in esp_extra are merged into the Amazon SES SendRawEmail parameters
         self.message.esp_extra = {
@@ -461,7 +485,9 @@ class AmazonSESBackendConfigurationTests(AmazonSESBackendMockAPITestCase):
         """
         self.message.send()
         client_params = self.get_client_params()
+        config = client_params.pop("config")  # Anymail adds a default config, which doesn't support ==
         self.assertEqual(client_params, {})  # no additional params passed to boto.client('ses')
+        self.assertRegex(config.user_agent_extra, r'django-anymail/\d(\.\w+){1,}-amazon-ses')
 
     @override_settings(ANYMAIL={
         "AMAZON_SES_CLIENT_PARAMS": {
@@ -469,23 +495,50 @@ class AmazonSESBackendConfigurationTests(AmazonSESBackendMockAPITestCase):
             "aws_access_key_id": "test-access-key-id",  # safer: `os.getenv("MY_SPECIAL_AWS_KEY_ID")`
             "aws_secret_access_key": "test-secret-access-key",
             "region_name": "ap-northeast-1",
+            # config can be given as dict of botocore.config.Config params
+            "config": {
+                "read_timeout": 30,
+                "retries": {"max_attempts": 2},
+            },
         }
     })
     def test_client_params_in_setting(self):
-        """The Anymail AMAZON_SES_CLIENT_PARAMS setting specifies boto3 config for Anymail"""
+        """The Anymail AMAZON_SES_CLIENT_PARAMS setting specifies boto3.client() params for Anymail"""
         self.message.send()
         client_params = self.get_client_params()
+        config = client_params.pop("config")  # botocore.config.Config doesn't support ==
         self.assertEqual(client_params, {
             "aws_access_key_id": "test-access-key-id",
             "aws_secret_access_key": "test-secret-access-key",
             "region_name": "ap-northeast-1",
         })
+        self.assertEqual(config.read_timeout, 30)
+        self.assertEqual(config.retries, {"max_attempts": 2})
 
     def test_client_params_in_connection_init(self):
         """You can also supply credentials specifically for a particular EmailBackend connection instance"""
+        boto_config = botocore.config.Config(connect_timeout=30)
         conn = mail.get_connection(
             'anymail.backends.amazon_ses.EmailBackend',
-            client_params={"aws_session_token": "test-session-token"})
+            client_params={"aws_session_token": "test-session-token", "config": boto_config})
         conn.send_messages([self.message])
+
         client_params = self.get_client_params()
+        config = client_params.pop("config")  # botocore.config.Config doesn't support ==
         self.assertEqual(client_params, {"aws_session_token": "test-session-token"})
+        self.assertEqual(config.connect_timeout, 30)
+
+    @override_settings(ANYMAIL={
+        "AMAZON_SES_CONFIGURATION_SET_NAME": "MyConfigurationSet"
+    })
+    def test_config_set_setting(self):
+        """You can supply a default ConfigurationSetName"""
+        self.message.send()
+        params = self.get_send_params()
+        self.assertEqual(params["ConfigurationSetName"], "MyConfigurationSet")
+
+        # override on individual message using esp_extra
+        self.message.esp_extra = {"ConfigurationSetName": "CustomConfigurationSet"}
+        self.message.send()
+        params = self.get_send_params()
+        self.assertEqual(params["ConfigurationSetName"], "CustomConfigurationSet")

@@ -5,12 +5,14 @@ from email.mime.base import MIMEBase
 from django.core.mail import BadHeaderError
 
 from .base import AnymailBaseBackend, BasePayload
+from .._version import __version__
 from ..exceptions import AnymailAPIError, AnymailImproperlyInstalled
 from ..message import AnymailRecipientStatus
 from ..utils import get_anymail_setting
 
 try:
     import boto3
+    from botocore.client import Config
     from botocore.exceptions import BotoCoreError, ClientError, ConnectionError
 except ImportError:
     raise AnymailImproperlyInstalled(missing_package='boto3', backend='amazon_ses')
@@ -25,6 +27,8 @@ BOTO_BASE_ERRORS = (BotoCoreError, ClientError, ConnectionError)
 # not already followed by a space. https://bugs.python.org/issue25257
 if Header("test,Python2,header,comma,bug", maxlinelen=20).encode() == "test,Python2,header,comma,bug":
     # no workaround needed
+    HeaderBugWorkaround = None
+
     def add_header(message, name, val):
         message[name] = val
 
@@ -57,10 +61,9 @@ class EmailBackend(AnymailBaseBackend):
         """Init options from Django settings"""
         super(EmailBackend, self).__init__(**kwargs)
         # AMAZON_SES_CLIENT_PARAMS is optional - boto3 can find credentials several other ways
-        self.client_params = get_anymail_setting("client_params", esp_name=self.esp_name,
-                                                 kwargs=kwargs, allow_bare=False, default={})
-        # TODO: maybe add a setting for default configuration set?
-        #       (otherwise must use "AMAZON_SES_ESP_EXTRA": {"ConfigurationSetName": "my-default-set"})
+        self.client_params = _get_anymail_boto3_client_params(kwargs=kwargs)
+        self.configuration_set_name = get_anymail_setting("configuration_set_name", esp_name=self.esp_name,
+                                                          kwargs=kwargs, allow_bare=False, default=None)
         self.client = None
 
     def open(self):
@@ -75,8 +78,7 @@ class EmailBackend(AnymailBaseBackend):
     def close(self):
         if self.client is None:
             return
-        # There's actually no (supported) close method for a boto3 client/session.
-        # boto3 just relies on garbage collection (and we're probably using a shared session anyway).
+        # self.client.close()  # boto3 doesn't currently seem to support (or require) this
         self.client = None
 
     def build_message_payload(self, message, defaults):
@@ -89,7 +91,7 @@ class EmailBackend(AnymailBaseBackend):
         except BOTO_BASE_ERRORS as err:
             # ClientError has a response attr with parsed json error response (other errors don't)
             raise AnymailAPIError(str(err), backend=self, email_message=message, payload=payload,
-                                  response=getattr(err, 'response', None))
+                                  response=getattr(err, 'response', None), raised_from=err)
         return response
 
     def parse_recipient_status(self, response, payload, message):
@@ -107,9 +109,16 @@ class EmailBackend(AnymailBaseBackend):
 
 class AmazonSESPayload(BasePayload):
     def init_payload(self):
-        self.mime_message = self.message.message()
-        self.params = {}
         self.all_recipients = []
+
+        self.mime_message = self.message.message()
+        if HeaderBugWorkaround and "Subject" in self.mime_message:
+            # (message.message() will have already checked subject for BadHeaderError)
+            self.mime_message.replace_header("Subject", HeaderBugWorkaround(self.message.subject))
+
+        self.params = {}
+        if self.backend.configuration_set_name is not None:
+            self.params["ConfigurationSetName"] = self.backend.configuration_set_name
 
     def get_api_params(self):
         self.params["RawMessage"] = {
@@ -142,7 +151,6 @@ class AmazonSESPayload(BasePayload):
         self._no_send_defaults(recipient_type)
 
     def set_subject(self, subject):
-        # TODO: consider using HeaderBugWorkaround here, too
         # included in mime_message
         self._no_send_defaults("subject")
 
@@ -237,3 +245,19 @@ class AmazonSESPayload(BasePayload):
         s = re.sub(r'\s+', '_', s)  # whitespace to single underscore
         s = re.sub(r'[^A-Za-z0-9_\-]+', '-', s)  # everything else to single hyphens
         return s
+
+
+def _get_anymail_boto3_client_params(name="client_params", esp_name=EmailBackend.esp_name, kwargs=None):
+    """Returns dict of params for boto3.client(), incorporating ANYMAIL["AMAZON_SES_CLIENT_PARAMS"] setting"""
+    # (shared with ..webhooks.amazon_ses)
+    client_params = get_anymail_setting(name, esp_name=esp_name, kwargs=kwargs, default={}).copy()
+    config = Config(user_agent_extra="django-anymail/{version}-{esp}".format(
+        esp=esp_name.lower().replace(" ", "-"), version=__version__))
+    if "config" in client_params:
+        # convert config dict to botocore.client.Config if needed
+        client_params_config = client_params["config"]
+        if not isinstance(client_params_config, Config):
+            client_params_config = Config(**client_params_config)
+        config = config.merge(client_params_config)
+    client_params["config"] = config
+    return client_params

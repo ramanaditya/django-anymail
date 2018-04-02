@@ -24,13 +24,18 @@ AMAZON_SES_TEST_REGION_NAME = os.getenv("AMAZON_SES_TEST_REGION_NAME", "us-east-
                      "environment variables to run Amazon SES integration tests")
 @override_settings(
     EMAIL_BACKEND="anymail.backends.amazon_ses.EmailBackend",
-    ANYMAIL_AMAZON_SES_CLIENT_PARAMS={
-        # This setting provides Anymail-specific AWS credentials to boto3.client(),
-        # overriding any credentials in the environment or boto config. It's often
-        # *not* the best approach -- see the Anymail and boto3 docs for other options.
-        "aws_access_key_id": AMAZON_SES_TEST_ACCESS_KEY_ID,
-        "aws_secret_access_key": AMAZON_SES_TEST_SECRET_ACCESS_KEY,
-        "region_name": AMAZON_SES_TEST_REGION_NAME,
+    ANYMAIL={
+        "AMAZON_SES_CLIENT_PARAMS": {
+            # This setting provides Anymail-specific AWS credentials to boto3.client(),
+            # overriding any credentials in the environment or boto config. It's often
+            # *not* the best approach -- see the Anymail and boto3 docs for other options.
+            "aws_access_key_id": AMAZON_SES_TEST_ACCESS_KEY_ID,
+            "aws_secret_access_key": AMAZON_SES_TEST_SECRET_ACCESS_KEY,
+            "region_name": AMAZON_SES_TEST_REGION_NAME,
+            # Can supply any other boto3.client params, including botocore.config.Config as dict
+            "config": {"retries": {"max_attempts": 2}},
+        },
+        "AMAZON_SES_CONFIGURATION_SET_NAME": "TestConfigurationSet",  # actual config set in Anymail test account
     })
 class AmazonSESBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
     """Amazon SES API integration tests
@@ -127,10 +132,12 @@ class AmazonSESBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
     #     recipient_status = message.anymail_status.recipients
     #     self.assertEqual(recipient_status['success+to1@simulator.amazonses.com'].status, 'queued')
 
-    @override_settings(ANYMAIL_AMAZON_SES_CLIENT_PARAMS={
-        "aws_access_key_id": "test-invalid-access-key-id",
-        "aws_secret_access_key": "test-invalid-secret-access-key",
-        "region_name": AMAZON_SES_TEST_REGION_NAME,
+    @override_settings(ANYMAIL={
+        "AMAZON_SES_CLIENT_PARAMS": {
+            "aws_access_key_id": "test-invalid-access-key-id",
+            "aws_secret_access_key": "test-invalid-secret-access-key",
+            "region_name": AMAZON_SES_TEST_REGION_NAME,
+        }
     })
     def test_invalid_aws_credentials(self):
         with self.assertRaises(AnymailAPIError) as cm:

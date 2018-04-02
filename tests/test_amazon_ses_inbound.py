@@ -226,7 +226,7 @@ class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
         response = self.post_from_sns('/anymail/amazon_ses/inbound/', raw_sns_message)
         self.assertEqual(response.status_code, 200)
 
-        mock_client.assert_called_once_with('s3')
+        mock_client.assert_called_once_with('s3', config=ANY)
         mock_s3.download_fileobj.assert_called_once_with(
             "InboundEmailBucket-KeepPrivate", "inbound/fqef5sop459utgdf4o9lqbsv7jeo73pejig34301", ANY)
 

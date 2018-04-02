@@ -7,6 +7,7 @@ from django.http import HttpResponse
 from django.utils.dateparse import parse_datetime
 
 from .base import AnymailBaseWebhookView
+from ..backends.amazon_ses import _get_anymail_boto3_client_params
 from ..exceptions import AnymailConfigurationError, AnymailImproperlyInstalled, AnymailWebhookValidationFailure
 from ..inbound import AnymailInboundMessage
 from ..signals import AnymailInboundEvent, AnymailTrackingEvent, EventType, RejectReason, inbound, tracking
@@ -29,8 +30,7 @@ class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
         self.auto_confirm_enabled = get_anymail_setting(
             "auto_confirm_sns_subscriptions", esp_name=self.esp_name, kwargs=kwargs, default=True)
         # boto3 client params for connecting to s3 (inbound downloads):
-        self.client_params = get_anymail_setting(
-            "client_params", esp_name=self.esp_name, kwargs=kwargs, allow_bare=False, default={})
+        self.client_params = _get_anymail_boto3_client_params(kwargs=kwargs)
         super(AmazonSESBaseWebhookView, self).__init__(**kwargs)
 
     @staticmethod
