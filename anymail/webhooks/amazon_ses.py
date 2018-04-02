@@ -1,3 +1,4 @@
+import io
 import json
 from base64 import b64decode
 
@@ -6,10 +7,15 @@ from django.http import HttpResponse
 from django.utils.dateparse import parse_datetime
 
 from .base import AnymailBaseWebhookView
-from ..exceptions import AnymailConfigurationError, AnymailWebhookValidationFailure
+from ..exceptions import AnymailConfigurationError, AnymailImproperlyInstalled, AnymailWebhookValidationFailure
 from ..inbound import AnymailInboundMessage
 from ..signals import AnymailInboundEvent, AnymailTrackingEvent, EventType, RejectReason, inbound, tracking
 from ..utils import combine, get_anymail_setting, getfirst
+
+try:
+    import boto3
+except ImportError:
+    raise AnymailImproperlyInstalled(missing_package='boto3', backend='amazon_ses')
 
 
 class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
@@ -22,6 +28,9 @@ class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
         # (Future: could also take a TopicArn or list to auto-confirm)
         self.auto_confirm_enabled = get_anymail_setting(
             "auto_confirm_sns_subscriptions", esp_name=self.esp_name, kwargs=kwargs, default=True)
+        # boto3 client params for connecting to s3 (inbound downloads):
+        self.client_params = get_anymail_setting(
+            "client_params", esp_name=self.esp_name, kwargs=kwargs, allow_bare=False, default={})
         super(AmazonSESBaseWebhookView, self).__init__(**kwargs)
 
     @staticmethod
@@ -273,26 +282,31 @@ class AmazonSESInboundWebhookView(AmazonSESBaseWebhookView):
         action_object = receipt_object.get("action", {})
         mail_object = ses_event.get("mail", {})
 
-        content = ses_event.get("content")
-        if content is None:
-            # if `content` field was missing, this must not have been an SNS action
+        action_type = action_object.get("type")
+        if action_type == "SNS":
+            content = ses_event.get("content")
+            if action_object.get("encoding") == "BASE64":
+                content = b64decode(content.encode("ascii"))
+                message = AnymailInboundMessage.parse_raw_mime_bytes(content)
+            else:
+                message = AnymailInboundMessage.parse_raw_mime(content)
+        elif action_type == "S3":
+            # download message from s3 into memory, then parse
+            # (SNS has 15s limit for an http response; hope download doesn't take that long)
+            s3 = boto3.client("s3", **self.client_params)
+            content = io.BytesIO()
+            try:
+                s3.download_fileobj(action_object["bucketName"], action_object["objectKey"], content)
+                content.seek(0)
+                message = AnymailInboundMessage.parse_raw_mime_file(content)
+            finally:
+                content.close()
+        else:
             raise AnymailConfigurationError(
-                "Anymail's Amazon SES inbound webhook works only with 'SNS' receipt rule actions, "
+                "Anymail's Amazon SES inbound webhook works only with 'SNS' or 'S3' receipt rule actions, "
                 "not SNS notifications for {action_type!s} actions. (SNS TopicArn {topic_arn!s})"
-                "".format(action_type=action_object.get("type"), topic_arn=sns_message.get("TopicArn")))
-            # TODO: maybe also support S3 action?
-            # (SNS has 15s limit for an http response; S3 download hopefully doesn't take that long)
-            #   s3 = boto3.client("s3", **self.client_params)
-            #   content_io = io.BytesIO()
-            #   s3.download_fileobj(action_object["bucketName"], action_object["objectKey"], content_io)
-            #   message = AnymailInboundMessage.parse_raw_mime_stream(content_io)
-            #   content_io.close()
+                "".format(action_type=action_type, topic_arn=sns_message.get("TopicArn")))
 
-        content_encoding = action_object.get("encoding", "UTF8")  # undocumented
-        if content_encoding == "BASE64":
-            content = b64decode(content.encode("ascii")).decode("utf-8")  # ("utf-8" isn't necessarily correct here)
-
-        message = AnymailInboundMessage.parse_raw_mime(content)
         message.envelope_sender = mail_object.get("source")  # "the envelope MAIL FROM address"
         try:
             # "recipients that were matched by the active receipt rule"

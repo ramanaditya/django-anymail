@@ -6,7 +6,7 @@ from datetime import datetime
 from textwrap import dedent
 
 from django.utils.timezone import utc
-from mock import ANY
+from mock import ANY, patch
 
 from anymail.exceptions import AnymailConfigurationError
 from anymail.inbound import AnymailInboundMessage
@@ -130,6 +130,7 @@ class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
         self.assertEqual(message.subject, 'Test inbound message')
         self.assertEqual(message.text, "It's a body\N{HORIZONTAL ELLIPSIS}\r\n")
         self.assertEqual(message.html, """<div dir="ltr">It's a body\N{HORIZONTAL ELLIPSIS}</div>\r\n""")
+        self.assertIs(message.spam_detected, False)
 
     def test_inbound_sns_base64(self):
         """Should handle 'Base 64' content option on received email SNS action"""
@@ -149,8 +150,9 @@ class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
                     "topicArn": "arn:aws:sns:us-east-1:111111111111:SES_Inbound",
                     "encoding": "BASE64",
                 },
+                "spamVerdict": {"status": "FAIL"},
             },
-            "content": b64encode(self.TEST_MIME_MESSAGE.encode('utf-8')).decode('ascii'),
+            "content": b64encode(self.TEST_MIME_MESSAGE.encode('ascii')).decode('ascii'),
         }
 
         raw_sns_message = {
@@ -182,6 +184,74 @@ class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
         self.assertEqual(message.subject, 'Test inbound message')
         self.assertEqual(message.text, "It's a body\N{HORIZONTAL ELLIPSIS}\r\n")
         self.assertEqual(message.html, """<div dir="ltr">It's a body\N{HORIZONTAL ELLIPSIS}</div>\r\n""")
+        self.assertIs(message.spam_detected, True)
+
+    @patch('anymail.backends.amazon_ses.boto3.client', autospec=True)
+    def test_inbound_s3(self, mock_client):
+        """Should handle 'S3' receipt action"""
+
+        # patch boto3.client('s3').download_fileobj
+        def mock_download_fileobj(bucket, key, fileobj):
+            fileobj.write(self.TEST_MIME_MESSAGE.encode('ascii'))
+        mock_s3 = mock_client.return_value
+        mock_s3.download_fileobj.side_effect = mock_download_fileobj
+
+        raw_ses_event = {
+            # (omitting some fields that aren't used by Anymail)
+            "notificationType": "Received",
+            "mail": {
+                "source": "envelope-from@example.org",
+                "timestamp": "2018-03-30T17:21:51.636Z",
+                "messageId": "fqef5sop459utgdf4o9lqbsv7jeo73pejig34301",  # assigned by Amazon SES
+                "destination": ["inbound@example.com", "someone-else@example.org"],
+            },
+            "receipt": {
+                "recipients": ["inbound@example.com"],
+                "action": {
+                    "type": "S3",
+                    "topicArn": "arn:aws:sns:us-east-1:111111111111:SES_Inbound",
+                    "bucketName": "InboundEmailBucket-KeepPrivate",
+                    "objectKeyPrefix": "inbound",
+                    "objectKey": "inbound/fqef5sop459utgdf4o9lqbsv7jeo73pejig34301"
+                },
+                "spamVerdict": {"status": "GRAY"},
+            },
+        }
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "8f6dee70-c885-558a-be7d-bd48bbf5335e",
+            "TopicArn": "arn:aws:sns:us-east-1:111111111111:SES_Inbound",
+            "Message": json.dumps(raw_ses_event),
+        }
+        response = self.post_from_sns('/anymail/amazon_ses/inbound/', raw_sns_message)
+        self.assertEqual(response.status_code, 200)
+
+        mock_client.assert_called_once_with('s3')
+        mock_s3.download_fileobj.assert_called_once_with(
+            "InboundEmailBucket-KeepPrivate", "inbound/fqef5sop459utgdf4o9lqbsv7jeo73pejig34301", ANY)
+
+        kwargs = self.assert_handler_called_once_with(self.inbound_handler, sender=AmazonSESInboundWebhookView,
+                                                      event=ANY, esp_name='Amazon SES')
+        event = kwargs['event']
+        self.assertIsInstance(event, AnymailInboundEvent)
+        self.assertEqual(event.event_type, 'inbound')
+        self.assertEqual(event.timestamp, datetime(2018, 3, 30, 17, 21, 51, microsecond=636000, tzinfo=utc))
+        self.assertEqual(event.event_id, "fqef5sop459utgdf4o9lqbsv7jeo73pejig34301")
+        self.assertIsInstance(event.message, AnymailInboundMessage)
+        self.assertEqual(event.esp_event, raw_ses_event)
+
+        message = event.message
+        self.assertIsInstance(message, AnymailInboundMessage)
+        self.assertEqual(message.envelope_sender, 'envelope-from@example.org')
+        self.assertEqual(message.envelope_recipient, 'inbound@example.com')
+        self.assertEqual(str(message.from_email), '"Sender, Inc." <from@example.org>')
+        self.assertEqual([str(to) for to in message.to],
+                         ['Recipient <inbound@example.com>', 'someone-else@example.org'])
+        self.assertEqual(message.subject, 'Test inbound message')
+        # rstrip below because the Python 3 EmailBytesParser converts \r\n to \n, but the Python 2 version doesn't
+        self.assertEqual(message.text.rstrip(), "It's a body\N{HORIZONTAL ELLIPSIS}")
+        self.assertEqual(message.html.rstrip(), """<div dir="ltr">It's a body\N{HORIZONTAL ELLIPSIS}</div>""")
+        self.assertIsNone(message.spam_detected)
 
     def test_incorrect_tracking_event(self):
         """The inbound webhook should warn if it receives tracking events"""
