@@ -2,7 +2,6 @@ import io
 import json
 from base64 import b64decode
 
-import requests
 from django.http import HttpResponse
 from django.utils.dateparse import parse_datetime
 
@@ -125,14 +124,10 @@ class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
                 "this subscription in the SNS dashboard with token '{token!s}'.)"
                 "".format(topic_arn=sns_message.get('TopicArn'), token=sns_message.get('Token')))
 
-        # WEBHOOK_SECRET *is* set, so the request's basic auth has been verified by now (in run_validators)
-        response = requests.get(sns_message["SubscribeURL"])
-        if not response.ok:
-            raise AnymailWebhookValidationFailure(
-                "Anymail received a {status_code} error trying to automatically confirm a subscription "
-                "to Amazon SNS topic '{topic_arn!s}'. The response was '{text!s}'."
-                "".format(status_code=response.status_code, text=response.text,
-                          topic_arn=sns_message.get('TopicArn')))
+        # WEBHOOK_SECRET *is* set, so the request's basic auth has been verified by now (in run_validators).
+        # We're good to confirm...
+        boto3.client('sns').confirm_subscription(
+            TopicArn=sns_message["TopicArn"], Token=sns_message["Token"], AuthenticateOnUnsubscribe='true')
 
 
 class AmazonSESTrackingWebhookView(AmazonSESBaseWebhookView):

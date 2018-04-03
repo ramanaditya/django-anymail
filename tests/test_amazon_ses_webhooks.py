@@ -2,6 +2,7 @@ import json
 import warnings
 from datetime import datetime
 
+import botocore.exceptions
 from django.test import override_settings
 from django.utils.timezone import utc
 from mock import ANY, patch
@@ -10,7 +11,6 @@ from anymail.exceptions import AnymailConfigurationError, AnymailInsecureWebhook
 from anymail.signals import AnymailTrackingEvent
 from anymail.webhooks.amazon_ses import AmazonSESTrackingWebhookView
 
-from .mock_requests_backend import RequestsBackendMockAPITestCase
 from .webhook_cases import WebhookBasicAuthTestsMixin, WebhookTestCase
 
 
@@ -409,15 +409,17 @@ class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTest
     # if Anymail is configured to require basic auth via WEBHOOK_SECRET.
     # (Note that WebhookTestCase sets up ANYMAIL WEBHOOK_SECRET.)
 
-    # Borrow requests mocking from RequestsBackendMockAPITestCase
-    MockResponse = RequestsBackendMockAPITestCase.MockResponse
-
     def setUp(self):
         super(AmazonSESSubscriptionManagementTests, self).setUp()
-        self.patch_request = patch('anymail.webhooks.amazon_ses.requests.get', autospec=True)
-        self.mock_request = self.patch_request.start()
-        self.addCleanup(self.patch_request.stop)
-        self.mock_request.return_value = self.MockResponse(status_code=200)
+        # Mock boto3.client('sns').confirm_subscription (and any other client operations)
+        # (We could also use botocore.stub.Stubber, but mock works well with our test structure)
+        self.patch_boto3_client = patch('anymail.webhooks.amazon_ses.boto3.client', autospec=True)
+        self.mock_client = self.patch_boto3_client.start()
+        self.addCleanup(self.patch_boto3_client.stop)
+        self.mock_client_instance = self.mock_client.return_value
+        self.mock_client_instance.confirm_subscription.return_value = {
+            'SubscriptionArn': 'arn:aws:sns:us-west-2:123456789012:SES_Notifications:aaaaaaa-...'
+        }
 
     SNS_SUBSCRIPTION_CONFIRMATION = {
         "Type": "SubscriptionConfirmation",
@@ -429,33 +431,37 @@ class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTest
         "Timestamp": "2012-04-26T20:45:04.751Z",
         "SignatureVersion": "1",
         "Signature": "EXAMPLE-SIGNATURE==",
-        "SigningCertURL": "https://sns.us-east-1.amazonaws.com/SimpleNotificationService-12345abcde.pem"
+        "SigningCertURL": "https://sns.us-west-2.amazonaws.com/SimpleNotificationService-12345abcde.pem"
     }
 
     def test_sns_subscription_auto_confirmation(self):
         """Anymail webhook will auto-confirm SNS topic subscriptions"""
         response = self.post_from_sns('/anymail/amazon_ses/tracking/', self.SNS_SUBSCRIPTION_CONFIRMATION)
         self.assertEqual(response.status_code, 200)
-        # auto-visited the SubscribeURL:
-        self.mock_request.assert_called_once_with(
-            "https://sns.us-west-2.amazonaws.com/?Action=ConfirmSubscription&TopicArn=...")
+        # auto-confirmed:
+        self.mock_client.assert_called_once_with('sns')
+        self.mock_client_instance.confirm_subscription.assert_called_once_with(
+            TopicArn="arn:aws:sns:us-west-2:123456789012:SES_Notifications",
+            Token="EXAMPLE_TOKEN", AuthenticateOnUnsubscribe="true")
         # didn't notify receivers:
         self.assertEqual(self.tracking_handler.call_count, 0)
         self.assertEqual(self.inbound_handler.call_count, 0)
 
     def test_sns_subscription_confirmation_failure(self):
-        """Auto-confirmation notifies if SubscribeURL errors"""
-        self.mock_request.return_value = self.MockResponse(status_code=500, raw=b"Gateway timeout")
-        with self.assertLogs('django.security.AnymailWebhookValidationFailure') as cm:
-            response = self.post_from_sns('/anymail/amazon_ses/tracking/', self.SNS_SUBSCRIPTION_CONFIRMATION)
-        self.assertEqual(response.status_code, 400)  # bad request
-        self.assertEqual(
-            ["Anymail received a 500 error trying to automatically confirm a subscription to Amazon SNS topic "
-             "'arn:aws:sns:us-west-2:123456789012:SES_Notifications'. The response was 'Gateway timeout'."],
-            [record.getMessage() for record in cm.records])
-        # auto-visited the SubscribeURL:
-        self.mock_request.assert_called_once_with(
-            "https://sns.us-west-2.amazonaws.com/?Action=ConfirmSubscription&TopicArn=...")
+        """Auto-confirmation allows error through if confirm call fails"""
+        self.mock_client_instance.confirm_subscription.side_effect = botocore.exceptions.ClientError({
+            'Error': {
+                'Type': 'Sender',
+                'Code': 'InternalError',
+                'Message': 'Gremlins!',
+            },
+            'ResponseMetadata': {
+                'RequestId': 'aaaaaaaa-2222-1111-8888-bbbb3333bbbb',
+                'HTTPStatusCode': 500,
+            }
+        }, operation_name="confirm_subscription")
+        with self.assertRaisesMessage(botocore.exceptions.ClientError, "Gremlins!"):
+            self.post_from_sns('/anymail/amazon_ses/tracking/', self.SNS_SUBSCRIPTION_CONFIRMATION)
         # didn't notify receivers:
         self.assertEqual(self.tracking_handler.call_count, 0)
         self.assertEqual(self.inbound_handler.call_count, 0)
@@ -473,8 +479,8 @@ class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTest
              "SNS subscriptions if you set a WEBHOOK_SECRET and use that in your SNS notification url. Or "
              "you can manually confirm this subscription in the SNS dashboard with token 'EXAMPLE_TOKEN'.)"],
             [record.getMessage() for record in cm.records])
-        # *didn't* visit the SubscribeURL:
-        self.assertEqual(self.mock_request.call_count, 0)
+        # *didn't* try to confirm the subscription:
+        self.assertEqual(self.mock_client_instance.confirm_subscription.call_count, 0)
         # didn't notify receivers:
         self.assertEqual(self.tracking_handler.call_count, 0)
         self.assertEqual(self.inbound_handler.call_count, 0)
@@ -512,8 +518,8 @@ class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTest
             "SigningCertURL": "https://sns.us-east-1.amazonaws.com/SimpleNotificationService-12345abcde.pem",
         })
         self.assertEqual(response.status_code, 200)
-        # *didn't* visit the SubscribeURL (because that would re-enable the subscription!):
-        self.assertEqual(self.mock_request.call_count, 0)
+        # *didn't* try to use the Token to re-enable the subscription:
+        self.assertEqual(self.mock_client_instance.confirm_subscription.call_count, 0)
         # didn't notify receivers:
         self.assertEqual(self.tracking_handler.call_count, 0)
         self.assertEqual(self.inbound_handler.call_count, 0)
@@ -523,8 +529,8 @@ class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTest
         """The ANYMAIL setting AMAZON_SES_AUTO_CONFIRM_SNS_SUBSCRIPTIONS will disable this feature"""
         response = self.post_from_sns('/anymail/amazon_ses/tracking/', self.SNS_SUBSCRIPTION_CONFIRMATION)
         self.assertEqual(response.status_code, 200)
-        # *didn't* visit the SubscribeURL:
-        self.assertEqual(self.mock_request.call_count, 0)
+        # *didn't* try to subscribe:
+        self.assertEqual(self.mock_client.call_count, 0)
         # didn't notify receivers:
         self.assertEqual(self.tracking_handler.call_count, 0)
         self.assertEqual(self.inbound_handler.call_count, 0)
