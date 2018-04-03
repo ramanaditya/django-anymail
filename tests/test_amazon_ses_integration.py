@@ -94,10 +94,8 @@ class AmazonSESBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
             bcc=["success+bcc1@simulator.amazonses.com", "Blind Copy 2 <success+bcc2@simulator.amazonses.com>"],
             reply_to=["reply1@example.com", "Reply 2 <reply2@example.com>"],
             headers={"X-Anymail-Test": "value"},
-
-            # Amazon SES only allows alphanumeric ASCII characters, '_', and '-' in tag/metadata keys and values:
             metadata={"meta1": "simple_string", "meta2": 2},
-            tags=["tag_1", "tag_2"],
+            tags=["Re-engagement", "Cohort 12/2017"],
         )
         message.attach("attachment1.txt", "Here is some\ntext for you", "text/plain")
         message.attach("attachment2.csv", "ID,Name\n1,Amy Lina", "text/csv")

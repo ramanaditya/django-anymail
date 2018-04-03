@@ -324,14 +324,6 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
             sent_message["X-Metadata"],
             '{"User ID": 12345, "items": "Correct horse,Battery,\\nStaple", "Cart-Total": "22.70"}')
 
-        # Metadata is also encoded as SES "Message Tags", transformed for Amazon tag limitations
-        params = self.get_send_params()
-        self.assertCountEqual(params['Tags'], [
-            {"Name": "User_ID", "Value": "12345"},
-            {"Name": "items", "Value": "Correct_horse-Battery-_Staple"},
-            {"Name": "Cart-Total", "Value": "22-70"},
-        ])
-
     def test_send_at(self):
         # Amazon SES does not support delayed sending
         self.message.send_at = datetime(2016, 3, 4, 5, 6, 7)
@@ -347,12 +339,25 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
         self.assertCountEqual(sent_message.get_all("X-Tag"),
                               ["Transactional", "Cohort 12/2017"])
 
-        # Tags are also converted to a single SES "Message Tag" named Tags,
-        # transformed for Amazon tag limitations, and separated by double underscores:
+        # Tags are *not* by default used as Amazon SES "Message Tags":
         params = self.get_send_params()
-        self.assertEqual(params['Tags'], [
-            {"Name": "Tags", "Value": "Transactional__Cohort_12-2017"},
-        ])
+        self.assertNotIn("Tags", params)
+
+    @override_settings(ANYMAIL_AMAZON_SES_MESSAGE_TAG_NAME="Campaign")
+    def test_amazon_message_tags(self):
+        """The Anymail AMAZON_SES_MESSAGE_TAG_NAME setting enables a single Message Tag"""
+        self.message.tags = ["Welcome"]
+        self.message.send()
+        params = self.get_send_params()
+        self.assertEqual(params['Tags'], [{"Name": "Campaign", "Value": "Welcome"}])
+
+        # Multiple Anymail tags are not supported when using this feature
+        self.message.tags = ["Welcome", "Variation_A"]
+        with self.assertRaisesMessage(
+            AnymailUnsupportedFeature,
+            "multiple tags with the AMAZON_SES_MESSAGE_TAG_NAME setting"
+        ):
+            self.message.send()
 
     def test_tracking(self):
         # Amazon SES doesn't support overriding click/open-tracking settings

@@ -1,4 +1,3 @@
-import re
 from email.header import Header
 from email.mime.base import MIMEBase
 
@@ -64,6 +63,8 @@ class EmailBackend(AnymailBaseBackend):
         self.client_params = _get_anymail_boto3_client_params(kwargs=kwargs)
         self.configuration_set_name = get_anymail_setting("configuration_set_name", esp_name=self.esp_name,
                                                           kwargs=kwargs, allow_bare=False, default=None)
+        self.message_tag_name = get_anymail_setting("message_tag_name", esp_name=self.esp_name,
+                                                    kwargs=kwargs, allow_bare=False, default=None)
         self.client = None
 
     def open(self):
@@ -192,25 +193,31 @@ class AmazonSESPayload(BasePayload):
         # Amazon SES has two mechanisms for adding custom data to a message:
         # * Custom message headers are available to webhooks (SNS notifications),
         #   but not in CloudWatch metrics/dashboards or Kinesis Firehose streams.
-        # * "Message Tags" are available to CloudWatch and Firehose, but not SNS.
-        #   (Message Tags also allow *very* limited characters.)
+        #   Custom headers can be sent only with SendRawEmail.
+        # * "Message Tags" are available to CloudWatch and Firehose, and to SNS
+        #   notifications for SES *events* but not SES *notifications*. (Got that?)
+        #   Message Tags also allow *very* limited characters in both name and value.
+        #   Message Tags can be sent with any SES send call.
         # (See "How do message tags work?" in https://aws.amazon.com/blogs/ses/introducing-sending-metrics/
         # and https://forums.aws.amazon.com/thread.jspa?messageID=782922.)
-        #
-        # Anymail metadata is useful in all these contexts, so use both mechanisms.
-        # (Same logic applies to Anymail tags.)
+        # To support reliable retrieval in webhooks, just use custom headers for metadata.
         add_header(self.mime_message, "X-Metadata", self.serialize_json(metadata))
-        self.params.setdefault("Tags", []).extend(
-            {"Name": self._clean_tag(key), "Value": self._clean_tag(value)}
-            for key, value in metadata.items())
 
     def set_tags(self, tags):
-        # (See note about Amazon SES Message Tags and custom headers in set_metadata above)
+        # See note about Amazon SES Message Tags and custom headers in set_metadata above.
+        # To support reliable retrieval in webhooks, use custom headers for tags.
+        # (There are no restrictions on number or content for custom header tags.)
         for tag in tags:
             add_header(self.mime_message, "X-Tag", tag)  # creates multiple X-Tag headers, one per tag
-        cleaned_tags = "__".join(self._clean_tag(tag) for tag in tags)
-        self.params.setdefault("Tags", []).append(
-            {"Name": "Tags", "Value": cleaned_tags})
+
+        # Also *optionally* pass a single Message Tag if the AMAZON_SES_MESSAGE_TAG_NAME
+        # Anymail setting is set (default no). The AWS API restricts tag content in this case.
+        # (This is useful for dashboard segmentation; use esp_extra["Tags"] for anything more complex.)
+        if tags and self.backend.message_tag_name is not None:
+            if len(tags) > 1:
+                self.unsupported_feature("multiple tags with the AMAZON_SES_MESSAGE_TAG_NAME setting")
+            self.params.setdefault("Tags", []).append(
+                {"Name": self.backend.message_tag_name, "Value": tags[0]})
 
     def set_template_id(self, template_id):
         # TODO: implement send_templated_email (uses different payload format; can't support attachments, etc.)
@@ -227,24 +234,6 @@ class AmazonSESPayload(BasePayload):
     def set_esp_extra(self, extra):
         # e.g., ConfigurationSetName, FromArn, SourceArn, ReturnPathArn
         self.params.update(extra)
-
-    @staticmethod
-    def _clean_tag(s):
-        """Return a version of str s transformed for use as an AWS `Tags` name or value.
-
-        AWS Tags allow only a-z, A-Z, 0-9, hyphen and underscore characters. (No spaces.)
-
-        This transformation:
-        * Makes no changes to strings that are already valid AWS Tags
-        * Converts each group of whitespace characters to a single underscore
-        * Converts each group of other prohibited characters to a single hyphen
-
-        The result is meant to be usefully readable, but the transformation is not reversable.
-        """
-        s = str(s)
-        s = re.sub(r'\s+', '_', s)  # whitespace to single underscore
-        s = re.sub(r'[^A-Za-z0-9_\-]+', '-', s)  # everything else to single hyphens
-        return s
 
 
 def _get_anymail_boto3_client_params(name="client_params", esp_name=EmailBackend.esp_name, kwargs=None):
