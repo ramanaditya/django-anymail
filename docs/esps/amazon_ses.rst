@@ -13,6 +13,8 @@ AWS SDK for Python, and includes sending, tracking, and inbound receiving capabi
     Depending on your needs, one of them may be more appropriate than Anymail.
 
 
+.. versionadded:: 2.1
+
 .. _Amazon Simple Email Service: https://aws.amazon.com/ses/
 .. _Boto 3: https://boto3.readthedocs.io/en/stable/
 
