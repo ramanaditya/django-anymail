@@ -36,7 +36,7 @@ setup(
     description='Django email integration for Mailgun, Mailjet, Postmark, SendGrid, SendinBlue, SparkPost '
                 'and other transactional ESPs',
     keywords="Django, email, email backend, ESP, transactional mail, "
-             "Mailgun, Mailjet, Mandrill, Postmark, SendinBlue, SendGrid, SparkPost",
+             "Amazon SES, Mailgun, Mailjet, Mandrill, Postmark, SendinBlue, SendGrid, SparkPost",
     author="Mike Edmunds and Anymail contributors",
     author_email="medmunds@gmail.com",
     url="https://github.com/anymail/django-anymail",

@@ -23,7 +23,7 @@ Anymail integrates several transactional email service providers (ESPs) into Dja
 with a consistent API that lets you use ESP-added features without locking your code
 to a particular ESP.
 
-It currently fully supports **Mailgun, Mailjet, Postmark, SendinBlue, SendGrid,**
+It currently fully supports **Amazon SES, Mailgun, Mailjet, Postmark, SendinBlue, SendGrid,**
 and **SparkPost,** and has limited support for **Mandrill.**
 
 Anymail normalizes ESP functionality so it "just works" with Django's

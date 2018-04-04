@@ -130,11 +130,11 @@ has special handling for certain headers. Anymail replicates its behavior for co
   the :mailheader:`Return-Path` at the recipient end. (Only if your ESP supports altering envelope
   sender, otherwise you'll get an :ref:`unsupported feature <unsupported-features>` error.)
 
-* If you supply a "To" header, you'll get an :ref:`unsupported feature <unsupported-features>` error.
+* If you supply a "To" header, you'll usually get an :ref:`unsupported feature <unsupported-features>` error.
   With Django's SMTP EmailBackend, this can be used to show the recipient a :mailheader:`To` address
   that's different from the actual envelope recipients in the message's
   :class:`to <django.core.mail.EmailMessage>` list. Spoofing the :mailheader:`To` header like this
-  is popular with spammers, and none of Anymail's supported ESPs allow it.
+  is popular with spammers, and almost none of Anymail's supported ESPs allow it.
 
 .. versionchanged:: 2.0
 
