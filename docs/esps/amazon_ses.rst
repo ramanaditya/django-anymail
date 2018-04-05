@@ -492,7 +492,7 @@ Additional Anymail settings for use with Amazon SES:
 
 .. rubric:: AMAZON_SES_CLIENT_PARAMS
 
-Optional. Additional `session parameters`_ Anymail should use to create the boto3 client. Example:
+Optional. Additional `client parameters`_ Anymail should use to create the boto3 session client. Example:
 
   .. code-block:: python
 
@@ -515,7 +515,7 @@ In most cases, it's better to let Boto obtain its own credentials through one of
 mechanisms: an IAM role for EC2 instances, standard AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 and AWS_SESSION_TOKEN environment variables, or a shared AWS credentials file.
 
-.. _session parameters:
+.. _client parameters:
     https://boto3.readthedocs.io/en/stable/reference/core/session.html#boto3.session.Session.client
 
 
