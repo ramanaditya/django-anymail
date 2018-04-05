@@ -8,6 +8,7 @@ from unittest import skipIf
 
 import botocore.config
 import botocore.exceptions
+import six
 from django.core import mail
 from django.core.mail import BadHeaderError
 from django.test import SimpleTestCase
@@ -94,7 +95,7 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
         """Returns a parsed version of the send_raw_email RawMessage.Data param"""
         params = self.get_send_params(operation_name="send_raw_email")  # (other operations don't have raw mime param)
         raw_mime = params['RawMessage']['Data']
-        parsed = AnymailInboundMessage.parse_raw_mime(raw_mime)
+        parsed = AnymailInboundMessage.parse_raw_mime_bytes(raw_mime)
         return parsed
 
     def assert_esp_not_called(self, msg=None, operation_name="send_raw_email"):
@@ -114,10 +115,11 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         # send_raw_email takes a fully-formatted MIME message.
         # This is a simple (if inexact) way to check for expected headers and body:
         raw_mime = params['RawMessage']['Data']
-        self.assertIn("\nFrom: from@example.com\n", raw_mime)
-        self.assertIn("\nTo: to@example.com\n", raw_mime)
-        self.assertIn("\nSubject: Subject here\n", raw_mime)
-        self.assertIn("\n\nHere is the message", raw_mime)
+        self.assertIsInstance(raw_mime, six.binary_type)  # SendRawEmail expects Data as bytes
+        self.assertIn(b"\nFrom: from@example.com\n", raw_mime)
+        self.assertIn(b"\nTo: to@example.com\n", raw_mime)
+        self.assertIn(b"\nSubject: Subject here\n", raw_mime)
+        self.assertIn(b"\n\nHere is the message", raw_mime)
 
     # Since the SES backend generates the MIME message using Django's
     # EmailMessage.message().to_string(), there's not really a need
@@ -133,11 +135,11 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         params = self.get_send_params()
         raw_mime = params['RawMessage']['Data']
         # Non-ASCII headers must use MIME encoded-word syntax:
-        self.assertIn("\nSubject: =?utf-8?b?VGjhu60gdGluIG5o4bqvbg==?=\n", raw_mime)
+        self.assertIn(b"\nSubject: =?utf-8?b?VGjhu60gdGluIG5o4bqvbg==?=\n", raw_mime)
         # Non-ASCII display names as well:
-        self.assertIn("\nTo: =?utf-8?b?TmfGsOG7nWkgbmjhuq1u?= <to@example.com>\n", raw_mime)
+        self.assertIn(b"\nTo: =?utf-8?b?TmfGsOG7nWkgbmjhuq1u?= <to@example.com>\n", raw_mime)
         # Non-ASCII address domains must use Punycode:
-        self.assertIn("\nCc: cc@xn--th-e0a.example.com\n", raw_mime)
+        self.assertIn(b"\nCc: cc@xn--th-e0a.example.com\n", raw_mime)
         # SES doesn't support non-ASCII in the username@ part (RFC 6531 "SMTPUTF8" extension)
 
     @skipIf(python_has_broken_mime_param_handling(),
@@ -200,7 +202,7 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         # Make sure neither the html nor the inline image is treated as an attachment:
         params = self.get_send_params()
         raw_mime = params['RawMessage']['Data']
-        self.assertNotIn('\nContent-Disposition: attachment', raw_mime)
+        self.assertNotIn(b'\nContent-Disposition: attachment', raw_mime)
 
     def test_multiple_html_alternatives(self):
         # Multiple alternatives *are* allowed
@@ -210,8 +212,8 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         params = self.get_send_params()
         raw_mime = params['RawMessage']['Data']
         # just check the alternative smade it into the message (assume that Django knows how to format them properly)
-        self.assertIn('\n\n<p>First html is OK</p>\n', raw_mime)
-        self.assertIn('\n\n<p>And so is second</p>\n', raw_mime)
+        self.assertIn(b'\n\n<p>First html is OK</p>\n', raw_mime)
+        self.assertIn(b'\n\n<p>And so is second</p>\n', raw_mime)
 
     def test_alternative(self):
         # Non-HTML alternatives *are* allowed
@@ -220,7 +222,7 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         params = self.get_send_params()
         raw_mime = params['RawMessage']['Data']
         # just check the alternative made it into the message (assume that Django knows how to format it properly)
-        self.assertIn("\nContent-Type: application/json\n", raw_mime)
+        self.assertIn(b"\nContent-Type: application/json\n", raw_mime)
 
     def test_multiple_from(self):
         # Amazon allows multiple addresses in the From header, but must specify which is Source
@@ -228,7 +230,7 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         self.message.send()
         params = self.get_send_params()
         raw_mime = params['RawMessage']['Data']
-        self.assertIn("\nFrom: from1@example.com, from2@example.com\n", raw_mime)
+        self.assertIn(b"\nFrom: from1@example.com, from2@example.com\n", raw_mime)
         self.assertEqual(params['Source'], "from1@example.com")
 
     def test_commas_in_subject(self):
@@ -310,8 +312,8 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
         params = self.get_send_params()
         raw_mime = params['RawMessage']['Data']
         self.assertEqual(params['Destinations'], ["envelope-to@example.com"])
-        self.assertIn("\nTo: Spoofed <spoofed-to@elsewhere.example.org>\n", raw_mime)
-        self.assertNotIn("envelope-to@example.com", raw_mime)
+        self.assertIn(b"\nTo: Spoofed <spoofed-to@elsewhere.example.org>\n", raw_mime)
+        self.assertNotIn(b"envelope-to@example.com", raw_mime)
 
     def test_metadata(self):
         # (that \n is a header-injection test)

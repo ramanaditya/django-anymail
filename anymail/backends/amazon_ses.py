@@ -134,7 +134,7 @@ class AmazonSESSendRawEmailPayload(AmazonSESBasePayload):
         self.params["RawMessage"] = {
             # Note: "Destinations" is determined from message headers if not provided
             # "Destinations": [email.addr_spec for email in self.all_recipients],
-            "Data": self.mime_message.as_string()
+            "Data": self.mime_message.as_bytes()
         }
         return ses_client.send_raw_email(**self.params)
 
