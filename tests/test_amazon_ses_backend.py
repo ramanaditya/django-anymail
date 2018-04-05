@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
+import json
 from datetime import datetime
 from email.mime.application import MIMEApplication
 from unittest import skipIf
@@ -15,7 +16,7 @@ from mock import ANY, patch
 
 from anymail.exceptions import AnymailAPIError, AnymailUnsupportedFeature
 from anymail.inbound import AnymailInboundMessage
-from anymail.message import attach_inline_image_file
+from anymail.message import attach_inline_image_file, AnymailMessage
 from .utils import (
     AnymailTestMixin, SAMPLE_IMAGE_FILENAME, python_has_broken_mime_param_handling,
     sample_image_content, sample_image_path)
@@ -383,34 +384,115 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
         with self.assertRaisesMessage(AnymailUnsupportedFeature, "global_merge_data without template_id"):
             self.message.send()
 
+    @override_settings(ANYMAIL_AMAZON_SES_MESSAGE_TAG_NAME="Campaign")  # only way to use tags with template_id
     def test_template(self):
-        self.message.template_id = "welcome_template"
-        with self.assertRaisesMessage(AnymailUnsupportedFeature, "template_id"):
-            self.message.send()
+        """With template_id, Anymail switches to SES SendBulkTemplatedEmail"""
+        # SendBulkTemplatedEmail uses a completely different API call and payload structure,
+        # so this re-tests a bunch of Anymail features that were handled differently above.
+        # (See test_amazon_ses_integration for a more realistic template example.)
+        raw_response = {
+            "Status": [
+                {"Status": "Success", "MessageId": "1111111111111111-bbbbbbbb-3333-7777"},
+                {"Status": "AccountThrottled"},
+            ],
+            "ResponseMetadata": self.DEFAULT_SEND_RESPONSE["ResponseMetadata"]
+        }
+        self.set_mock_response(raw_response, operation_name="send_bulk_templated_email")
+        message = AnymailMessage(
+            template_id="welcome_template",
+            from_email='"Example, Inc." <from@example.com>',
+            to=['alice@example.com', '罗伯特 <bob@example.com>'],
+            cc=['cc@example.com'],
+            reply_to=['reply1@example.com', 'Reply 2 <reply2@example.com>'],
+            merge_data={
+                'alice@example.com': {'name': "Alice", 'group': "Developers"},
+                'bob@example.com': {'name': "Bob"},  # and leave group undefined
+                'nobody@example.com': {'name': "Not a recipient for this message"},
+            },
+            merge_global_data={'group': "Users", 'site': "ExampleCo"},
+            tags=["WelcomeVariantA"],  # (only with AMAZON_SES_MESSAGE_TAG_NAME when using template)
+            envelope_sender="bounces@example.com",
+            esp_extra={'SourceArn': "arn:aws:ses:us-east-1:123456789012:identity/example.com"},
+        )
+        message.send()
 
-        # TODO: Implement SES SendTemplatedEmail...
-        # self.message.from_email = '"Example, Inc." <from@example.com>'
-        # self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
-        # self.message.cc = ['cc@example.com']
-        # self.message.merge_data = {
-        #     'alice@example.com': {'name': "Alice", 'group': "Developers"},
-        #     'bob@example.com': {'name': "Bob"},  # and leave group undefined
-        #     'nobody@example.com': {'name': "Not a recipient for this message"},
-        # }
-        # self.message.merge_global_data = {'group': "Users", 'site': "ExampleCo"}
-        # self.message.send()
-        #
-        # self.assert_esp_not_called(operation_name="send_raw_email")  # templates use a different API call...
-        # params = self.get_send_params(operation_name="send_templated_email")
-        # self.assertEqual(params['Template'], "welcome_template")
-        # self.assertEqual(params['Source'], '"Example, Inc." <from@example.com>')
-        # self.assertCountEqual(params['Destinations'], [
-        #     {"Destination": {"ToAddresses": ['alice@example.com'], "CcAddresses": ['cc@example.com']},
-        #      "ReplacementTemplateData": {'name': "Alice", 'group': "Developers"}},
-        #     {"Destination": {"ToAddresses": ['Bob <bob@example.com>'], "CcAddresses": ['cc@example.com']},
-        #      "ReplacementTemplateData": {'name': "Bob"}},
-        # ])
-        # self.assertEqual(params['DefaultTemplateData'], {'group': "Users", 'site': "ExampleCo"})
+        self.assert_esp_not_called(operation_name="send_raw_email")  # templates use a different API call...
+        params = self.get_send_params(operation_name="send_bulk_templated_email")
+        self.assertEqual(params['Template'], "welcome_template")
+        self.assertEqual(params['Source'], '"Example, Inc." <from@example.com>')
+        destinations = params['Destinations']
+        self.assertEqual(len(destinations), 2)
+        self.assertEqual(destinations[0]['Destination'],
+                         {"ToAddresses": ['alice@example.com'],
+                          "CcAddresses": ['cc@example.com']})
+        self.assertEqual(json.loads(destinations[0]['ReplacementTemplateData']),
+                         {'name': "Alice", 'group': "Developers"})
+        self.assertEqual(destinations[1]['Destination'],
+                         {"ToAddresses": ['=?utf-8?b?572X5Lyv54m5?= <bob@example.com>'],  # SES requires RFC2047
+                          "CcAddresses": ['cc@example.com']})
+        self.assertEqual(json.loads(destinations[1]['ReplacementTemplateData']),
+                         {'name': "Bob"})
+        self.assertEqual(json.loads(params['DefaultTemplateData']),
+                         {'group': "Users", 'site': "ExampleCo"})
+        self.assertEqual(params['ReplyToAddresses'],
+                         ['reply1@example.com', 'Reply 2 <reply2@example.com>'])
+        self.assertEqual(params['DefaultTags'], [{"Name": "Campaign", "Value": "WelcomeVariantA"}])
+        self.assertEqual(params['ReturnPath'], "bounces@example.com")
+        self.assertEqual(params['SourceArn'], "arn:aws:ses:us-east-1:123456789012:identity/example.com")  # esp_extra
+
+        self.assertEqual(message.anymail_status.status, {"queued", "failed"})
+        self.assertEqual(message.anymail_status.message_id,
+                         {"1111111111111111-bbbbbbbb-3333-7777", None})  # different for each recipient
+        self.assertEqual(message.anymail_status.recipients["alice@example.com"].status, "queued")
+        self.assertEqual(message.anymail_status.recipients["bob@example.com"].status, "failed")
+        self.assertEqual(message.anymail_status.recipients["alice@example.com"].message_id,
+                         "1111111111111111-bbbbbbbb-3333-7777")
+        self.assertIsNone(message.anymail_status.recipients["bob@example.com"].message_id)
+        self.assertEqual(message.anymail_status.esp_response, raw_response)
+
+    def test_template_unsupported(self):
+        """A lot of options are not compatible with SendBulkTemplatedEmail"""
+        message = AnymailMessage(template_id="welcome_template", to=['to@example.com'])
+
+        message.subject = "nope, can't change template subject"
+        with self.assertRaisesMessage(AnymailUnsupportedFeature, "overriding template subject"):
+            message.send()
+        message.subject = None
+
+        message.body = "nope, can't change text body"
+        with self.assertRaisesMessage(AnymailUnsupportedFeature, "overriding template body content"):
+            message.send()
+        message.content_subtype = "html"
+        with self.assertRaisesMessage(AnymailUnsupportedFeature, "overriding template body content"):
+            message.send()
+        message.body = None
+
+        message.attach("attachment.txt", "this is an attachment", "text/plain")
+        with self.assertRaisesMessage(AnymailUnsupportedFeature, "attachments with template"):
+            message.send()
+        message.attachments = []
+
+        message.extra_headers = {"X-Custom": "header"}
+        with self.assertRaisesMessage(AnymailUnsupportedFeature, "extra_headers with template"):
+            message.send()
+        message.extra_headers = {}
+
+        message.metadata = {"meta": "data"}
+        with self.assertRaisesMessage(AnymailUnsupportedFeature, "metadata with template"):
+            message.send()
+        message.metadata = None
+
+        message.tags = ["tag 1", "tag 2"]
+        with self.assertRaisesMessage(AnymailUnsupportedFeature, "tags with template"):
+            message.send()
+        message.tags = None
+
+    def test_send_anymail_message_without_template(self):
+        # Make sure SendRawEmail is used for non-template_id messages
+        message = AnymailMessage(from_email="from@example.com", to=["to@example.com"], subject="subject")
+        message.send()
+        self.assert_esp_not_called(operation_name="send_bulk_templated_email")
+        self.get_send_params(operation_name="send_raw_email")  # fails if send_raw_email not called
 
     def test_default_omits_options(self):
         """Make sure by default we don't send any ESP-specific options.
@@ -422,6 +504,7 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
         self.message.send()
         params = self.get_send_params()
         self.assertNotIn('ConfigurationSetName', params)
+        self.assertNotIn('DefaultTags', params)
         self.assertNotIn('DefaultTemplateData', params)
         self.assertNotIn('Destinations', params)
         self.assertNotIn('FromArn', params)

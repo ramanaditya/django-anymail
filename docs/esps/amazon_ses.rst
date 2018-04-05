@@ -218,18 +218,47 @@ to apply it to all messages.)
 Batch sending/merge and ESP templates
 -------------------------------------
 
-[SendBulkTemplatedEmail implementation coming soon]
+Amazon SES offers :ref:`ESP stored templates <esp-stored-templates>`
+and :ref:`batch sending <batch-send>` with per-recipient merge data.
+See Amazon's `Sending personalized email`_ guide for more information.
 
-Additional limitations when sending with a template:
+When you set a message's :attr:`~anymail.message.AnymailMessage.template_id`
+to the name of one of your SES templates, Anymail will use the SES
+`SendBulkTemplatedEmail`_ call to send template messages personalized with data
+from Anymail's normalized :attr:`~anymail.message.AnymailMessage.merge_data`
+and :attr:`~anymail.message.AnymailMessage.merge_global_data`
+message attributes.
+
+  .. code-block:: python
+
+      message = EmailMessage(
+          from_email="shipping@example.com",
+          # you must omit subject and body (or set to None) with Amazon SES templates
+          to=["alice@example.com", "Bob <bob@example.com>"]
+      )
+      message.template_id = "MyTemplateName"  # Amazon SES TemplateName
+      message.merge_data = {
+          'alice@example.com': {'name': "Alice", 'order_no': "12345"},
+          'bob@example.com': {'name': "Bob", 'order_no': "54321"},
+      }
+      message.merge_global_data = {
+          'ship_date': "May 15",
+      }
+
+Amazon's templated email APIs don't support several features available for regular email.
+When :attr:`~anymail.message.AnymailMessage.template_id` is used:
 
 * Attachments are not supported
 * Extra headers are not supported
-* Overriding the message's subject or body is not supported
+* Overriding the template's subject or body is not supported
 * Anymail's :attr:`~anymail.message.AnymailMessage.metadata` is not supported
 * Anymail's :attr:`~anymail.message.AnymailMessage.tags` are only supported
   with the :setting:`AMAZON_SES_MESSAGE_TAG_NAME <ANYMAIL_AMAZON_SES_MESSAGE_TAG_NAME>`
   setting; only a single tag is allowed, and the tag is not directly available
   to webhooks. (See :ref:`amazon-ses-tags` above.)
+
+.. _Sending personalized email:
+   https://docs.aws.amazon.com/ses/latest/DeveloperGuide/send-personalized-email-api.html
 
 
 .. _amazon-ses-webhooks:

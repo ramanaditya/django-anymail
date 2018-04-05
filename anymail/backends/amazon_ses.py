@@ -7,7 +7,7 @@ from .base import AnymailBaseBackend, BasePayload
 from .._version import __version__
 from ..exceptions import AnymailAPIError, AnymailImproperlyInstalled
 from ..message import AnymailRecipientStatus
-from ..utils import get_anymail_setting
+from ..utils import get_anymail_setting, UNSET
 
 try:
     import boto3
@@ -83,12 +83,16 @@ class EmailBackend(AnymailBaseBackend):
         self.client = None
 
     def build_message_payload(self, message, defaults):
-        return AmazonSESPayload(message, defaults, self)
+        # The SES SendRawEmail and SendBulkTemplatedEmail calls have
+        # very different signatures, so use a custom payload for each
+        if getattr(message, "template_id", UNSET) is not UNSET:
+            return AmazonSESSendBulkTemplatedEmailPayload(message, defaults, self)
+        else:
+            return AmazonSESSendRawEmailPayload(message, defaults, self)
 
     def post_to_esp(self, payload, message):
-        params = payload.get_api_params()
         try:
-            response = self.client.send_raw_email(**params)
+            response = payload.call_send_api(self.client)
         except BOTO_BASE_ERRORS as err:
             # ClientError has a response attr with parsed json error response (other errors don't)
             raise AnymailAPIError(str(err), backend=self, email_message=message, payload=payload,
@@ -96,38 +100,54 @@ class EmailBackend(AnymailBaseBackend):
         return response
 
     def parse_recipient_status(self, response, payload, message):
-        # response is the parsed (dict) JSON returned the API call
-        try:
-            message_id = response["MessageId"]
-        except (KeyError, TypeError) as err:
-            raise AnymailAPIError(
-                "%s parsing Amazon SES send result %r" % (str(err), response),
-                backend=self, email_message=message, payload=payload)
-
-        recipient_status = AnymailRecipientStatus(message_id=message_id, status="queued")
-        return {recipient.addr_spec: recipient_status for recipient in payload.all_recipients}
+        return payload.parse_recipient_status(response)
 
 
-class AmazonSESPayload(BasePayload):
+class AmazonSESBasePayload(BasePayload):
     def init_payload(self):
-        self.all_recipients = []
+        self.params = {}
+        if self.backend.configuration_set_name is not None:
+            self.params["ConfigurationSetName"] = self.backend.configuration_set_name
 
+    def call_send_api(self, ses_client):
+        raise NotImplementedError()
+
+    def parse_recipient_status(self, response):
+        # response is the parsed (dict) JSON returned from the API call
+        raise NotImplementedError()
+
+    def set_esp_extra(self, extra):
+        # e.g., ConfigurationSetName, FromArn, SourceArn, ReturnPathArn
+        self.params.update(extra)
+
+
+class AmazonSESSendRawEmailPayload(AmazonSESBasePayload):
+    def init_payload(self):
+        super(AmazonSESSendRawEmailPayload, self).init_payload()
+        self.all_recipients = []
         self.mime_message = self.message.message()
         if HeaderBugWorkaround and "Subject" in self.mime_message:
             # (message.message() will have already checked subject for BadHeaderError)
             self.mime_message.replace_header("Subject", HeaderBugWorkaround(self.message.subject))
 
-        self.params = {}
-        if self.backend.configuration_set_name is not None:
-            self.params["ConfigurationSetName"] = self.backend.configuration_set_name
-
-    def get_api_params(self):
+    def call_send_api(self, ses_client):
         self.params["RawMessage"] = {
             # Note: "Destinations" is determined from message headers if not provided
             # "Destinations": [email.addr_spec for email in self.all_recipients],
             "Data": self.mime_message.as_string()
         }
-        return self.params
+        return ses_client.send_raw_email(**self.params)
+
+    def parse_recipient_status(self, response):
+        try:
+            message_id = response["MessageId"]
+        except (KeyError, TypeError) as err:
+            raise AnymailAPIError(
+                "%s parsing Amazon SES send result %r" % (str(err), response),
+                backend=self.backend, email_message=self.message, payload=self)
+
+        recipient_status = AnymailRecipientStatus(message_id=message_id, status="queued")
+        return {recipient.addr_spec: recipient_status for recipient in self.all_recipients}
 
     # Standard EmailMessage attrs...
     # These all get rolled into the RFC-5322 raw mime directly via EmailMessage.message()
@@ -220,9 +240,7 @@ class AmazonSESPayload(BasePayload):
                 {"Name": self.backend.message_tag_name, "Value": tags[0]})
 
     def set_template_id(self, template_id):
-        # TODO: implement send_templated_email (uses different payload format; can't support attachments, etc.)
-        # https://docs.aws.amazon.com/ses/latest/DeveloperGuide/send-personalized-email-advanced.html
-        self.unsupported_feature("template_id")
+        raise NotImplementedError("AmazonSESSendRawEmailPayload should not have been used with template_id")
 
     def set_merge_data(self, merge_data):
         self.unsupported_feature("merge_data without template_id")
@@ -230,10 +248,114 @@ class AmazonSESPayload(BasePayload):
     def set_merge_global_data(self, merge_global_data):
         self.unsupported_feature("global_merge_data without template_id")
 
-    # ESP-specific payload construction
-    def set_esp_extra(self, extra):
-        # e.g., ConfigurationSetName, FromArn, SourceArn, ReturnPathArn
-        self.params.update(extra)
+
+class AmazonSESSendBulkTemplatedEmailPayload(AmazonSESBasePayload):
+    def init_payload(self):
+        super(AmazonSESSendBulkTemplatedEmailPayload, self).init_payload()
+        # late-bind recipients and merge_data in call_send_api
+        self.recipients = {"to": [], "cc": [], "bcc": []}
+        self.merge_data = {}
+
+    def call_send_api(self, ses_client):
+        # include any 'cc' or 'bcc' in every destination
+        cc_and_bcc_addresses = {}
+        if self.recipients["cc"]:
+            cc_and_bcc_addresses["CcAddresses"] = [cc.address for cc in self.recipients["cc"]]
+        if self.recipients["bcc"]:
+            cc_and_bcc_addresses["BccAddresses"] = [bcc.address for bcc in self.recipients["bcc"]]
+
+        # set up destination and data for each 'to'
+        self.params["Destinations"] = [{
+            "Destination": dict(ToAddresses=[to.address], **cc_and_bcc_addresses),
+            "ReplacementTemplateData": self.serialize_json(self.merge_data.get(to.addr_spec, {}))
+        } for to in self.recipients["to"]]
+
+        return ses_client.send_bulk_templated_email(**self.params)
+
+    def parse_recipient_status(self, response):
+        try:
+            # response["Status"] should be a list in Destinations (to) order
+            anymail_statuses = [
+                AnymailRecipientStatus(
+                    message_id=status.get("MessageId", None),
+                    status='queued' if status.get("Status") == "Success" else 'failed')
+                for status in response["Status"]
+            ]
+        except (KeyError, TypeError) as err:
+            raise AnymailAPIError(
+                "%s parsing Amazon SES send result %r" % (str(err), response),
+                backend=self.backend, email_message=self.message, payload=self)
+
+        to_addrs = [to.addr_spec for to in self.recipients["to"]]
+        if len(anymail_statuses) != len(to_addrs):
+            raise AnymailAPIError(
+                "Sent to %d destinations, but only %d statuses in Amazon SES send result %r"
+                % (len(to_addrs), len(anymail_statuses), response),
+                backend=self.backend, email_message=self.message, payload=self)
+
+        return dict(zip(to_addrs, anymail_statuses))
+
+    def set_from_email(self, email):
+        self.params["Source"] = email.address  # this will RFC2047-encode display_name if needed
+
+    def set_recipients(self, recipient_type, emails):
+        # late-bound in call_send_api
+        assert recipient_type in ("to", "cc", "bcc")
+        self.recipients[recipient_type] = emails
+
+    def set_subject(self, subject):
+        # (subject can only come from template; you can use substitution vars in that)
+        if subject:
+            self.unsupported_feature("overriding template subject")
+
+    def set_reply_to(self, emails):
+        if emails:
+            self.params["ReplyToAddresses"] = [email.address for email in emails]
+
+    def set_extra_headers(self, headers):
+        self.unsupported_feature("extra_headers with template")
+
+    def set_text_body(self, body):
+        if body:
+            self.unsupported_feature("overriding template body content")
+
+    def set_html_body(self, body):
+        if body:
+            self.unsupported_feature("overriding template body content")
+
+    def set_attachments(self, attachments):
+        if attachments:
+            self.unsupported_feature("attachments with template")
+
+    # Anymail-specific payload construction
+    def set_envelope_sender(self, email):
+        self.params["ReturnPath"] = email.addr_spec
+
+    def set_metadata(self, metadata):
+        # no custom headers with SendBulkTemplatedEmail
+        self.unsupported_feature("metadata with template")
+
+    def set_tags(self, tags):
+        # no custom headers with SendBulkTemplatedEmail, but support AMAZON_SES_MESSAGE_TAG_NAME if used
+        # (see tags/metadata in AmazonSESSendRawEmailPayload for more info)
+        if tags:
+            if self.backend.message_tag_name is not None:
+                if len(tags) > 1:
+                    self.unsupported_feature("multiple tags with the AMAZON_SES_MESSAGE_TAG_NAME setting")
+                self.params["DefaultTags"] = [{"Name": self.backend.message_tag_name, "Value": tags[0]}]
+            else:
+                self.unsupported_feature(
+                    "tags with template (unless using the AMAZON_SES_MESSAGE_TAG_NAME setting)")
+
+    def set_template_id(self, template_id):
+        self.params["Template"] = template_id
+
+    def set_merge_data(self, merge_data):
+        # late-bound in call_send_api
+        self.merge_data = merge_data
+
+    def set_merge_global_data(self, merge_global_data):
+        self.params["DefaultTemplateData"] = self.serialize_json(merge_global_data)
 
 
 def _get_anymail_boto3_client_params(name="client_params", esp_name=EmailBackend.esp_name, kwargs=None):

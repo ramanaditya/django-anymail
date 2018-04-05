@@ -112,23 +112,34 @@ class AmazonSESBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
         message.send()
         self.assertEqual(message.anymail_status.status, {'queued'})
 
-    # TODO: support SendTemplatedEmail
-    # def test_stored_template(self):
-    #     message = AnymailMessage(
-    #         template_id='test-template',  # a real template in our Amazon SES test account
-    #         to=["success+to1@simulator.amazonses.com"],
-    #         merge_data={
-    #             'success+to1@simulator.amazonses.com': {
-    #                 'name': "Test Recipient",
-    #             }
-    #         },
-    #         merge_global_data={
-    #             'order': '12345',
-    #         },
-    #     )
-    #     message.send()
-    #     recipient_status = message.anymail_status.recipients
-    #     self.assertEqual(recipient_status['success+to1@simulator.amazonses.com'].status, 'queued')
+    def test_stored_template(self):
+        # Using a template created like this:
+        # boto3.client('ses').create_template(Template={
+        #     "TemplateName": "TestTemplate",
+        #     "SubjectPart": "Your order {{order}} shipped",
+        #     "HtmlPart": "<h1>Dear {{name}}:</h1><p>Your order {{order}} shipped {{ship_date}}.</p>",
+        #     "TextPart": "Dear {{name}}:\r\nYour order {{order}} shipped {{ship_date}}."
+        # })
+        message = AnymailMessage(
+            template_id='TestTemplate',
+            from_email='"Test From" <test@test-ses.anymail.info>',
+            to=["First Recipient <success+to1@simulator.amazonses.com>",
+                "success+to2@simulator.amazonses.com"],
+            merge_data={
+                'success+to1@simulator.amazonses.com': {'order': 12345, 'name': "Test Recipient"},
+                'success+to2@simulator.amazonses.com': {'order': 6789},
+            },
+            merge_global_data={
+                'name': "Customer",  # default
+                'ship_date': "today"
+            },
+        )
+        message.send()
+        recipient_status = message.anymail_status.recipients
+        self.assertEqual(recipient_status['success+to1@simulator.amazonses.com'].status, 'queued')
+        self.assertRegex(recipient_status['success+to1@simulator.amazonses.com'].message_id, r'[0-9a-f-]+')
+        self.assertEqual(recipient_status['success+to2@simulator.amazonses.com'].status, 'queued')
+        self.assertRegex(recipient_status['success+to2@simulator.amazonses.com'].message_id, r'[0-9a-f-]+')
 
     @override_settings(ANYMAIL={
         "AMAZON_SES_CLIENT_PARAMS": {
