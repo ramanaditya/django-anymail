@@ -13,6 +13,12 @@ from anymail.message import AnymailMessage
 
 from .utils import AnymailTestMixin, sample_image_path, RUN_LIVE_TESTS
 
+try:
+    ResourceWarning
+except NameError:
+    ResourceWarning = Warning  # Python 2
+
+
 AMAZON_SES_TEST_ACCESS_KEY_ID = os.getenv("AMAZON_SES_TEST_ACCESS_KEY_ID")
 AMAZON_SES_TEST_SECRET_ACCESS_KEY = os.getenv("AMAZON_SES_TEST_SECRET_ACCESS_KEY")
 AMAZON_SES_TEST_REGION_NAME = os.getenv("AMAZON_SES_TEST_REGION_NAME", "us-east-1")
@@ -68,7 +74,7 @@ class AmazonSESBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
         # https://www.google.com/search?q=unittest+boto3+ResourceWarning+unclosed+ssl.SSLSocket
         # Filter in TestCase.setUp because unittest resets the warning filters for each test.
         # https://stackoverflow.com/a/26620811/647002
-        warnings.filterwarnings("ignore", message=r"unclosed \<ssl\.SSLSocket", category=ResourceWarning)
+        warnings.filterwarnings("ignore", message=r"unclosed <ssl\.SSLSocket", category=ResourceWarning)
 
     def test_simple_send(self):
         # Example of getting the Amazon SES send status and message id from the message
