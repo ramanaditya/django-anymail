@@ -60,7 +60,7 @@ class EmailBackend(AnymailBaseBackend):
         """Init options from Django settings"""
         super(EmailBackend, self).__init__(**kwargs)
         # AMAZON_SES_CLIENT_PARAMS is optional - boto3 can find credentials several other ways
-        self.client_params = _get_anymail_boto3_client_params(kwargs=kwargs)
+        self.session_params, self.client_params = _get_anymail_boto3_params(kwargs=kwargs)
         self.configuration_set_name = get_anymail_setting("configuration_set_name", esp_name=self.esp_name,
                                                           kwargs=kwargs, allow_bare=False, default=None)
         self.message_tag_name = get_anymail_setting("message_tag_name", esp_name=self.esp_name,
@@ -71,7 +71,7 @@ class EmailBackend(AnymailBaseBackend):
         if self.client:
             return False  # already exists
         try:
-            self.client = boto3.client("ses", **self.client_params)
+            self.client = boto3.session.Session(**self.session_params).client("ses", **self.client_params)
         except BOTO_BASE_ERRORS:
             if not self.fail_silently:
                 raise
@@ -358,10 +358,22 @@ class AmazonSESSendBulkTemplatedEmailPayload(AmazonSESBasePayload):
         self.params["DefaultTemplateData"] = self.serialize_json(merge_global_data)
 
 
-def _get_anymail_boto3_client_params(name="client_params", esp_name=EmailBackend.esp_name, kwargs=None):
-    """Returns dict of params for boto3.client(), incorporating ANYMAIL["AMAZON_SES_CLIENT_PARAMS"] setting"""
+def _get_anymail_boto3_params(esp_name=EmailBackend.esp_name, kwargs=None):
+    """Returns 2 dicts of params for boto3.session.Session() and .client()
+
+    Incorporates ANYMAIL["AMAZON_SES_SESSION_PARAMS"] and
+    ANYMAIL["AMAZON_SES_CLIENT_PARAMS"] settings.
+
+    Converts config dict to botocore.client.Config if needed
+
+    May remove keys from kwargs, but won't modify original settings
+    """
     # (shared with ..webhooks.amazon_ses)
-    client_params = get_anymail_setting(name, esp_name=esp_name, kwargs=kwargs, default={}).copy()
+    session_params = get_anymail_setting("session_params", esp_name=esp_name, kwargs=kwargs, default={})
+    client_params = get_anymail_setting("client_params", esp_name=esp_name, kwargs=kwargs, default={})
+
+    # Add Anymail user-agent, and convert config dict to botocore.client.Config
+    client_params = client_params.copy()  # don't modify source
     config = Config(user_agent_extra="django-anymail/{version}-{esp}".format(
         esp=esp_name.lower().replace(" ", "-"), version=__version__))
     if "config" in client_params:
@@ -371,4 +383,5 @@ def _get_anymail_boto3_client_params(name="client_params", esp_name=EmailBackend
             client_params_config = Config(**client_params_config)
         config = config.merge(client_params_config)
     client_params["config"] = config
-    return client_params
+
+    return session_params, client_params

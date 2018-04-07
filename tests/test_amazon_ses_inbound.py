@@ -186,13 +186,14 @@ class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
         self.assertEqual(message.html, """<div dir="ltr">It's a body\N{HORIZONTAL ELLIPSIS}</div>\r\n""")
         self.assertIs(message.spam_detected, True)
 
-    @patch('anymail.backends.amazon_ses.boto3.client', autospec=True)
-    def test_inbound_s3(self, mock_client):
+    @patch('anymail.backends.amazon_ses.boto3.session.Session', autospec=True)
+    def test_inbound_s3(self, mock_session):
         """Should handle 'S3' receipt action"""
 
-        # patch boto3.client('s3').download_fileobj
+        # patch boto3.session.Session().client('s3').download_fileobj
         def mock_download_fileobj(bucket, key, fileobj):
             fileobj.write(self.TEST_MIME_MESSAGE.encode('ascii'))
+        mock_client = mock_session.return_value.client
         mock_s3 = mock_client.return_value
         mock_s3.download_fileobj.side_effect = mock_download_fileobj
 

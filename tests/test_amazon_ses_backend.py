@@ -30,12 +30,13 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
     def setUp(self):
         super(AmazonSESBackendMockAPITestCase, self).setUp()
 
-        # Mock boto3.client('ses').send_raw_email (and any other client operations)
+        # Mock boto3.session.Session().client('ses').send_raw_email (and any other client operations)
         # (We could also use botocore.stub.Stubber, but mock works well with our test structure)
-        self.patch_boto3_client = patch('anymail.backends.amazon_ses.boto3.client', autospec=True)
-        self.mock_client = self.patch_boto3_client.start()
-        self.addCleanup(self.patch_boto3_client.stop)
-        self.mock_client_instance = self.mock_client.return_value
+        self.patch_boto3_session = patch('anymail.backends.amazon_ses.boto3.session.Session', autospec=True)
+        self.mock_session = self.patch_boto3_session.start()  # boto3.session.Session
+        self.addCleanup(self.patch_boto3_session.stop)
+        self.mock_client = self.mock_session.return_value.client  # boto3.session.Session().client
+        self.mock_client_instance = self.mock_client.return_value  # boto3.session.Session().client('ses', ...)
         self.set_mock_response()
 
         # Simple message useful for many tests
@@ -66,17 +67,26 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
         mock_operation = getattr(self.mock_client_instance, operation_name)
         mock_operation.side_effect = botocore.exceptions.ClientError(response, operation_name=operation_name)
 
-    def get_client_params(self, service="ses"):
-        """Returns kwargs params passed to mock boto3.client constructor
+    def get_session_params(self):
+        if self.mock_session.call_args is None:
+            raise AssertionError("boto3 Session was not created")
+        (args, kwargs) = self.mock_session.call_args
+        if args:
+            raise AssertionError("boto3 Session created with unexpected positional args %r" % args)
+        return kwargs
 
-        Fails test if boto3.client wasn't constructed with named service
+    def get_client_params(self, service="ses"):
+        """Returns kwargs params passed to mock boto3 client constructor
+
+        Fails test if boto3 client wasn't constructed with named service
         """
         if self.mock_client.call_args is None:
-            raise AssertionError("boto3.client was not created")
+            raise AssertionError("boto3 client was not created")
         (args, kwargs) = self.mock_client.call_args
-        if len(args) < 1 or args[0] != service:
-            raise AssertionError("boto3.client created with service %r, not %r"
-                                 % (args.get(0), service))
+        if len(args) != 1:
+            raise AssertionError("boto3 client created with unexpected positional args %r" % args)
+        if args[0] != service:
+            raise AssertionError("boto3 client created with service %r, not %r" % (args[0], service))
         return kwargs
 
     def get_send_params(self, operation_name="send_raw_email"):
@@ -574,9 +584,13 @@ class AmazonSESBackendConfigurationTests(AmazonSESBackendMockAPITestCase):
         See http://boto3.readthedocs.io/en/stable/guide/configuration.html
         """
         self.message.send()
+
+        session_params = self.get_session_params()
+        self.assertEqual(session_params, {})  # no additional params passed to boto3.session.Session()
+
         client_params = self.get_client_params()
         config = client_params.pop("config")  # Anymail adds a default config, which doesn't support ==
-        self.assertEqual(client_params, {})  # no additional params passed to boto.client('ses')
+        self.assertEqual(client_params, {})  # no additional params passed to session.client('ses')
         self.assertRegex(config.user_agent_extra, r'django-anymail/\d(\.\w+){1,}-amazon-ses')
 
     @override_settings(ANYMAIL={
@@ -593,7 +607,7 @@ class AmazonSESBackendConfigurationTests(AmazonSESBackendMockAPITestCase):
         }
     })
     def test_client_params_in_setting(self):
-        """The Anymail AMAZON_SES_CLIENT_PARAMS setting specifies boto3.client() params for Anymail"""
+        """The Anymail AMAZON_SES_CLIENT_PARAMS setting specifies boto3 session.client() params for Anymail"""
         self.message.send()
         client_params = self.get_client_params()
         config = client_params.pop("config")  # botocore.config.Config doesn't support ==
@@ -617,6 +631,22 @@ class AmazonSESBackendConfigurationTests(AmazonSESBackendMockAPITestCase):
         config = client_params.pop("config")  # botocore.config.Config doesn't support ==
         self.assertEqual(client_params, {"aws_session_token": "test-session-token"})
         self.assertEqual(config.connect_timeout, 30)
+
+    @override_settings(ANYMAIL={
+        "AMAZON_SES_SESSION_PARAMS": {
+            "profile_name": "anymail-testing"
+        }
+    })
+    def test_session_params_in_setting(self):
+        """The Anymail AMAZON_SES_SESSION_PARAMS setting specifies boto3.session.Session() params for Anymail"""
+        self.message.send()
+
+        session_params = self.get_session_params()
+        self.assertEqual(session_params, {"profile_name": "anymail-testing"})
+
+        client_params = self.get_client_params()
+        client_params.pop("config")  # Anymail adds a default config, which doesn't support ==
+        self.assertEqual(client_params, {})  # no additional params passed to session.client('ses')
 
     @override_settings(ANYMAIL={
         "AMAZON_SES_CONFIGURATION_SET_NAME": "MyConfigurationSet"

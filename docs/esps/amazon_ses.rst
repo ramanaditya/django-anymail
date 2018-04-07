@@ -548,6 +548,25 @@ and AWS_SESSION_TOKEN environment variables, or a shared AWS credentials file.
     https://boto3.readthedocs.io/en/stable/reference/core/session.html#boto3.session.Session.client
 
 
+.. setting:: ANYMAIL_AMAZON_SES_SESSION_PARAMS
+
+.. rubric:: AMAZON_SES_SESSION_PARAMS
+
+Optional. Additional `session parameters`_ Anymail should use to create the boto3 Session. Example:
+
+  .. code-block:: python
+
+      ANYMAIL = {
+          ...
+          "AMAZON_SES_SESSION_PARAMS": {
+              "profile_name": "anymail-testing",
+          },
+      }
+
+.. _session parameters:
+    https://boto3.readthedocs.io/en/stable/reference/core/session.html#boto3.session.Session
+
+
 .. setting:: ANYMAIL_AMAZON_SES_CONFIGURATION_SET_NAME
 
 .. rubric:: AMAZON_SES_CONFIGURATION_SET_NAME

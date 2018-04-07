@@ -6,7 +6,7 @@ from django.http import HttpResponse
 from django.utils.dateparse import parse_datetime
 
 from .base import AnymailBaseWebhookView
-from ..backends.amazon_ses import _get_anymail_boto3_client_params
+from ..backends.amazon_ses import _get_anymail_boto3_params
 from ..exceptions import AnymailConfigurationError, AnymailImproperlyInstalled, AnymailWebhookValidationFailure
 from ..inbound import AnymailInboundMessage
 from ..signals import AnymailInboundEvent, AnymailTrackingEvent, EventType, RejectReason, inbound, tracking
@@ -28,8 +28,8 @@ class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
         # (Future: could also take a TopicArn or list to auto-confirm)
         self.auto_confirm_enabled = get_anymail_setting(
             "auto_confirm_sns_subscriptions", esp_name=self.esp_name, kwargs=kwargs, default=True)
-        # boto3 client params for connecting to s3 (inbound downloads):
-        self.client_params = _get_anymail_boto3_client_params(kwargs=kwargs)
+        # boto3 params for connecting to S3 (inbound downloads) and SNS (auto-confirm subscriptions):
+        self.session_params, self.client_params = _get_anymail_boto3_params(kwargs=kwargs)
         super(AmazonSESBaseWebhookView, self).__init__(**kwargs)
 
     @staticmethod
@@ -126,7 +126,8 @@ class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
 
         # WEBHOOK_SECRET *is* set, so the request's basic auth has been verified by now (in run_validators).
         # We're good to confirm...
-        boto3.client('sns', **self.client_params).confirm_subscription(
+        sns_client = boto3.session.Session(**self.session_params).client('sns', **self.client_params)
+        sns_client.confirm_subscription(
             TopicArn=sns_message["TopicArn"], Token=sns_message["Token"], AuthenticateOnUnsubscribe='true')
 
 
@@ -288,7 +289,7 @@ class AmazonSESInboundWebhookView(AmazonSESBaseWebhookView):
         elif action_type == "S3":
             # download message from s3 into memory, then parse
             # (SNS has 15s limit for an http response; hope download doesn't take that long)
-            s3 = boto3.client("s3", **self.client_params)
+            s3 = boto3.session.Session(**self.session_params).client("s3", **self.client_params)
             content = io.BytesIO()
             try:
                 s3.download_fileobj(action_object["bucketName"], action_object["objectKey"], content)

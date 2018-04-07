@@ -411,12 +411,13 @@ class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTest
 
     def setUp(self):
         super(AmazonSESSubscriptionManagementTests, self).setUp()
-        # Mock boto3.client('sns').confirm_subscription (and any other client operations)
+        # Mock boto3.session.Session().client('sns').confirm_subscription (and any other client operations)
         # (We could also use botocore.stub.Stubber, but mock works well with our test structure)
-        self.patch_boto3_client = patch('anymail.webhooks.amazon_ses.boto3.client', autospec=True)
-        self.mock_client = self.patch_boto3_client.start()
-        self.addCleanup(self.patch_boto3_client.stop)
-        self.mock_client_instance = self.mock_client.return_value
+        self.patch_boto3_session = patch('anymail.webhooks.amazon_ses.boto3.session.Session', autospec=True)
+        self.mock_session = self.patch_boto3_session.start()  # boto3.session.Session
+        self.addCleanup(self.patch_boto3_session.stop)
+        self.mock_client = self.mock_session.return_value.client  # boto3.session.Session().client
+        self.mock_client_instance = self.mock_client.return_value  # boto3.session.Session().client('sns', ...)
         self.mock_client_instance.confirm_subscription.return_value = {
             'SubscriptionArn': 'arn:aws:sns:us-west-2:123456789012:SES_Notifications:aaaaaaa-...'
         }
@@ -530,6 +531,7 @@ class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTest
         response = self.post_from_sns('/anymail/amazon_ses/tracking/', self.SNS_SUBSCRIPTION_CONFIRMATION)
         self.assertEqual(response.status_code, 200)
         # *didn't* try to subscribe:
+        self.assertEqual(self.mock_session.call_count, 0)
         self.assertEqual(self.mock_client.call_count, 0)
         # didn't notify receivers:
         self.assertEqual(self.tracking_handler.call_count, 0)
