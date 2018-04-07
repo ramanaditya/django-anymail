@@ -5,10 +5,11 @@ from base64 import b64encode
 from datetime import datetime
 from textwrap import dedent
 
+import botocore.exceptions
 from django.utils.timezone import utc
 from mock import ANY, patch
 
-from anymail.exceptions import AnymailConfigurationError
+from anymail.exceptions import AnymailAPIError, AnymailConfigurationError
 from anymail.inbound import AnymailInboundMessage
 from anymail.signals import AnymailInboundEvent
 from anymail.webhooks.amazon_ses import AmazonSESInboundWebhookView
@@ -18,6 +19,22 @@ from .webhook_cases import WebhookTestCase
 
 
 class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
+
+    def setUp(self):
+        super(AmazonSESInboundTests, self).setUp()
+        # Mock boto3.session.Session().client('s3').download_fileobj
+        # (We could also use botocore.stub.Stubber, but mock works well with our test structure)
+        self.patch_boto3_session = patch('anymail.webhooks.amazon_ses.boto3.session.Session', autospec=True)
+        self.mock_session = self.patch_boto3_session.start()  # boto3.session.Session
+        self.addCleanup(self.patch_boto3_session.stop)
+
+        def mock_download_fileobj(bucket, key, fileobj):
+            fileobj.write(self.mock_s3_downloadables[bucket][key])
+
+        self.mock_s3_downloadables = {}  # bucket: key: bytes
+        self.mock_client = self.mock_session.return_value.client  # boto3.session.Session().client
+        self.mock_s3 = self.mock_client.return_value  # boto3.session.Session().client('s3', ...)
+        self.mock_s3.download_fileobj.side_effect = mock_download_fileobj
 
     TEST_MIME_MESSAGE = dedent("""\
         Return-Path: <bounce-handler@mail.example.org>
@@ -186,16 +203,12 @@ class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
         self.assertEqual(message.html, """<div dir="ltr">It's a body\N{HORIZONTAL ELLIPSIS}</div>\r\n""")
         self.assertIs(message.spam_detected, True)
 
-    @patch('anymail.backends.amazon_ses.boto3.session.Session', autospec=True)
-    def test_inbound_s3(self, mock_session):
+    def test_inbound_s3(self):
         """Should handle 'S3' receipt action"""
 
-        # patch boto3.session.Session().client('s3').download_fileobj
-        def mock_download_fileobj(bucket, key, fileobj):
-            fileobj.write(self.TEST_MIME_MESSAGE.encode('ascii'))
-        mock_client = mock_session.return_value.client
-        mock_s3 = mock_client.return_value
-        mock_s3.download_fileobj.side_effect = mock_download_fileobj
+        self.mock_s3_downloadables["InboundEmailBucket-KeepPrivate"] = {
+            "inbound/fqef5sop459utgdf4o9lqbsv7jeo73pejig34301": self.TEST_MIME_MESSAGE.encode('ascii')
+        }
 
         raw_ses_event = {
             # (omitting some fields that aren't used by Anymail)
@@ -227,8 +240,8 @@ class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
         response = self.post_from_sns('/anymail/amazon_ses/inbound/', raw_sns_message)
         self.assertEqual(response.status_code, 200)
 
-        mock_client.assert_called_once_with('s3', config=ANY)
-        mock_s3.download_fileobj.assert_called_once_with(
+        self.mock_client.assert_called_once_with('s3', config=ANY)
+        self.mock_s3.download_fileobj.assert_called_once_with(
             "InboundEmailBucket-KeepPrivate", "inbound/fqef5sop459utgdf4o9lqbsv7jeo73pejig34301", ANY)
 
         kwargs = self.assert_handler_called_once_with(self.inbound_handler, sender=AmazonSESInboundWebhookView,
@@ -253,6 +266,33 @@ class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
         self.assertEqual(message.text.rstrip(), "It's a body\N{HORIZONTAL ELLIPSIS}")
         self.assertEqual(message.html.rstrip(), """<div dir="ltr">It's a body\N{HORIZONTAL ELLIPSIS}</div>""")
         self.assertIsNone(message.spam_detected)
+
+    def test_inbound_s3_failure_message(self):
+        """Issue a helpful error when S3 download fails"""
+        # Boto's error: "An error occurred (403) when calling the HeadObject operation: Forbidden")
+        self.mock_s3.download_fileobj.side_effect = botocore.exceptions.ClientError(
+            {'Error': {'Code': 403, 'Message': 'Forbidden'}}, operation_name='HeadObject')
+
+        raw_ses_event = {
+            "notificationType": "Received",
+            "receipt": {
+                "action": {"type": "S3", "bucketName": "YourBucket", "objectKey": "inbound/the_object_key"}
+            },
+        }
+        raw_sns_message = {
+            "Type": "Notification",
+            "MessageId": "8f6dee70-c885-558a-be7d-bd48bbf5335e",
+            "TopicArn": "arn:aws:sns:us-east-1:111111111111:SES_Inbound",
+            "Message": json.dumps(raw_ses_event),
+        }
+        with self.assertRaisesMessage(
+            AnymailAPIError,
+            "Anymail AmazonSESInboundWebhookView couldn't download S3 object 'YourBucket:inbound/the_object_key'"
+        ) as cm:
+            self.post_from_sns('/anymail/amazon_ses/inbound/', raw_sns_message)
+        self.assertIsInstance(cm.exception, botocore.exceptions.ClientError)  # both Boto and Anymail exception class
+        self.assertIn("ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden",
+                      str(cm.exception))  # original Boto message included
 
     def test_incorrect_tracking_event(self):
         """The inbound webhook should warn if it receives tracking events"""
