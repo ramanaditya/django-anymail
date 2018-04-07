@@ -585,12 +585,27 @@ See :ref:`amazon-ses-confirm-sns-subscriptions` above.
 IAM permissions
 ---------------
 
-**For sending mail,** Anymail requires the following IAM permissions:
+Anymail requires IAM permissions that will allow it to use these actions:
 
-* For sending ordinary email, action ``ses:SendRawEmail``
-* For sending template/merge email, action ``ses:SendBulkTemplatedEmail``
+* To send mail:
 
-This IAM policy statement would permit both:
+  * Ordinary (non-templated) sends: ``ses:SendRawEmail``
+  * Template/merge sends: ``ses:SendBulkTemplatedEmail``
+
+* To :ref:`automatically confirm <amazon-ses-confirm-sns-subscriptions>`
+  webhook SNS subscriptions: ``sns:ConfirmSubscription``
+
+* For status tracking webhooks: no special permissions
+
+* To receive inbound mail:
+
+  * With an "SNS action" receipt rule: no special permissions
+  * With an "S3 action" receipt rule: ``s3:GetObject`` on the S3 bucket
+    and prefix used (or S3 Access Control List read access for inbound
+    messages in that bucket)
+
+
+This IAM policy covers all of those:
 
     .. code-block:: json
 
@@ -600,55 +615,49 @@ This IAM policy statement would permit both:
             "Effect": "Allow",
             "Action": ["ses:SendRawEmail", "ses:SendBulkTemplatedEmail"],
             "Resource": "*"
+          }, {
+            "Effect": "Allow",
+            "Action": ["sns:ConfirmSubscription"],
+            "Resource": ["arn:aws:sns:*:*:*"]
+          }, {
+            "Effect": "Allow",
+            "Action": ["s3:GetObject"],
+            "Resource": ["arn:aws:s3:::MY-PRIVATE-BUCKET-NAME/MY-INBOUND-PREFIX/*"]
           }]
         }
 
-You can add other sending restrictions, such as allowed senders, recipients,
-times, or source IP. See Amazon's `Controlling access to Amazon SES`_ guide.
-(Anymail adds "django-anymail" and its version number to the Boto User-Agent.)
+Following the principle of `least privilege`_, you should omit permissions
+for any features you aren't using, and you may want to add additional restrictions:
+
+* For Amazon SES sending, you can add conditions to restrict senders, recipients, times,
+  or other properties. See Amazon's `Controlling access to Amazon SES`_ guide.
+
+* For auto-confirming webhooks, you might limit the resource to SNS topics owned
+  by your AWS account, and/or specific topic names or patterns. E.g.,
+  ``"arn:aws:sns:*:0000000000000000:SES_*_Events"`` (replacing the zeroes with
+  your numeric AWS account id). See Amazon's guide to `Amazon SNS ARNs`_.
+
+* For inbound S3 delivery, there are multiple ways to control S3 access and data
+  retention. See Amazon's `Managing access permissions to your Amazon S3 resources`_.
+  (And obviously, you should *never store incoming emails to a public bucket!*)
+
+  Also, you may need to grant Amazon SES (but *not* Anymail) permission to *write*
+  to your inbound bucket. See Amazon's `Giving permissions to Amazon SES for email receiving`_.
+
+* For all operations, you can limit source IP, allowable times, user agent, and more.
+  (Requests from Anymail will include "django-anymail/*version*" along with Boto's user-agent.)
+  See Amazon's guide to `IAM condition context keys`_.
 
 
-**For receiving inbound mail,** if you are using the "SNS action" option on the SES
-receipt rule, no special permissions are required.
-
-If you are using the "S3 action" receipt option, Anymail requires the ``s3:GetObject``
-action on the S3 bucket and prefix used.
-(Obviously, you should *never store incoming emails to a public bucket!*)
-
-This IAM policy would let Anymail's inbound webhook download messages stored to
-bucket "my-example-inbound-bucket" without any prefix:
-
-    .. code-block:: json
-
-        {
-          "Version":"2012-10-17",
-          "Statement": [{
-              "Effect": "Allow",
-              "Action": ["s3:GetObject"],
-              "Resource": ["arn:aws:s3:::my-example-inbound-bucket/*"]
-          }]
-        }
-
-There are multiple ways to manage S3 access, and you may want to impose additional
-restrictions. See Amazon's `Managing access permissions to your Amazon S3 resources`_.
-
-Also, you may need to grant Amazon SES (*not* Anymail) permission to *write*
-to that bucket. See Amazon's `Giving permissions to Amazon SES for email receiving`_.
-
-
-**For tracking webhooks,** no special permissions are required.
-
-Also, no special permissions are required for Anymail to
-:ref:`automatically confirm SNS subscriptions <amazon-ses-confirm-sns-subscriptions>`.
-(The ``sns:ConfirmSubscription`` action is `not restricted by IAM policy`_.)
-
-
+.. _least privilege:
+    https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html#grant-least-privilege
 .. _Controlling access to Amazon SES:
     https://docs.aws.amazon.com/ses/latest/DeveloperGuide/control-user-access.html
+.. _Amazon SNS ARNs:
+    https://docs.aws.amazon.com/sns/latest/dg/UsingIAMwithSNS.html#SNS_ARN_Format
 .. _Managing access permissions to your Amazon S3 resources:
     https://docs.aws.amazon.com/AmazonS3/latest/dev/s3-access-control.html
 .. _Giving permissions to Amazon SES for email receiving:
     https://docs.aws.amazon.com/ses/latest/DeveloperGuide/receiving-email-permissions.html
-.. _not restricted by IAM policy:
-    https://docs.aws.amazon.com/sns/latest/dg/UsingIAMwithSNS.html#UsingWithSNS_Actions
-
+.. _IAM condition context keys:
+    https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_condition-keys.html
