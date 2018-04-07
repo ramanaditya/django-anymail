@@ -376,6 +376,23 @@ released a standard way to do that in Python. Instead, Anymail relies on your
 :setting:`WEBHOOK_SECRET <ANYMAIL_WEBHOOK_SECRET>` to verify SNS notifications are from an
 authorized source.
 
+.. _amazon-ses-sns-retry-policy:
+
+.. note::
+
+    Amazon SNS's default policy for handling HTTPS notification failures is to retry
+    three times, 20 seconds apart, and then drop the notification. That means
+    **if your webhook is ever offline for more than one minute, you may miss events.**
+
+    For most uses, it probably makes sense to `configure an SNS retry policy`_ with more
+    attempts over a longer period. E.g., 20 retries ranging from 5 seconds minimum
+    to 600 seconds (5 minutes) maximum delay between attempts, with geometric backoff.
+
+    Also, SNS does *not* guarantee notifications will be delivered to HTTPS subscribers
+    like Anymail webhooks. The longest SNS will ever keep retrying is one hour total. If you need
+    retries longer than that, or guaranteed delivery, you may need to implement your own queuing
+    mechanism with something like Celery or directly on Amazon Simple Queue Service (SQS).
+
 
 .. _Create an SNS Topic:
     https://docs.aws.amazon.com/sns/latest/dg/CreateTopic.html
@@ -391,6 +408,9 @@ authorized source.
     https://docs.aws.amazon.com/ses/latest/DeveloperGuide/event-publishing-retrieving-sns-contents.html
 .. _SNS signature verification:
     https://docs.aws.amazon.com/sns/latest/dg/SendMessageToHttp.verify.signature.html
+.. _configure an SNS retry policy:
+    https://docs.aws.amazon.com/sns/latest/dg/DeliveryPolicies.html
+
 
 .. _amazon-ses-inbound:
 
@@ -455,6 +475,12 @@ the message (if you are using the S3 receipt action) and any processing in your
 signal receiver. If the total takes longer, SNS will consider the notification failed
 and will make several repeat attempts. To avoid problems, it's essential any lengthy
 operations are offloaded to a background task.
+
+Amazon SNS's default retry policy times out after one minute of failed notifications.
+If your webhook is ever unreachable for more than a minute, **you may miss inbound mail.**
+You'll probably want to adjust your SNS topic settings to reduce the chances of that.
+See the note about :ref:`retry policies <amazon-ses-sns-retry-policy>` in the tracking
+webhooks discussion above.
 
 In your inbound signal receiver, the normalized AnymailTrackingEvent's
 :attr:`~anymail.signals.AnymailTrackingEvent.esp_event` will be set to the
