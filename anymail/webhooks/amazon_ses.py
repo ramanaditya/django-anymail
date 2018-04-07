@@ -126,7 +126,7 @@ class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
 
         # WEBHOOK_SECRET *is* set, so the request's basic auth has been verified by now (in run_validators).
         # We're good to confirm...
-        boto3.client('sns').confirm_subscription(
+        boto3.client('sns', **self.client_params).confirm_subscription(
             TopicArn=sns_message["TopicArn"], Token=sns_message["Token"], AuthenticateOnUnsubscribe='true')
 
 

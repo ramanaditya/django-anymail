@@ -439,7 +439,7 @@ class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTest
         response = self.post_from_sns('/anymail/amazon_ses/tracking/', self.SNS_SUBSCRIPTION_CONFIRMATION)
         self.assertEqual(response.status_code, 200)
         # auto-confirmed:
-        self.mock_client.assert_called_once_with('sns')
+        self.mock_client.assert_called_once_with('sns', config=ANY)
         self.mock_client_instance.confirm_subscription.assert_called_once_with(
             TopicArn="arn:aws:sns:us-west-2:123456789012:SES_Notifications",
             Token="EXAMPLE_TOKEN", AuthenticateOnUnsubscribe="true")
