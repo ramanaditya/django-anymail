@@ -42,8 +42,7 @@ class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
                 body = request.body.decode(request.encoding or 'utf-8')
                 request._sns_message = json.loads(body)
             except (TypeError, ValueError, UnicodeDecodeError) as err:
-                raise AnymailWebhookValidationFailure("Malformed SNS message body %r" % request.body,
-                                                      raised_from=err)
+                raise AnymailAPIError("Malformed SNS message body %r" % request.body, raised_from=err)
         return request._sns_message
 
     def validate_request(self, request):
@@ -57,7 +56,7 @@ class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
                 % (header_type, body_type))
 
         if header_type not in ["Notification", "SubscriptionConfirmation", "UnsubscribeConfirmation"]:
-            raise AnymailWebhookValidationFailure("Unknown SNS message type '%s'" % header_type)
+            raise AnymailAPIError("Unknown SNS message type '%s'" % header_type)
 
         header_id = request.META.get("HTTP_X_AMZ_SNS_MESSAGE_ID", "<<missing>>")
         body_id = sns_message.get("MessageId", "<<missing>>")
@@ -66,10 +65,8 @@ class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
                 'SNS header "x-amz-sns-message-id: %s" doesn\'t match body "MessageId": "%s"'
                 % (header_id, body_id))
 
-        # TODO: Verify SNS message signature
+        # Future: Verify SNS message signature
         # https://docs.aws.amazon.com/sns/latest/dg/SendMessageToHttp.verify.signature.html
-        # Requires ability to public-key-decrypt signature with Amazon-supplied X.509 cert
-        # (which isn't in Python standard lib; need pyopenssl or pycryptodome, e.g.)
 
     def post(self, request, *args, **kwargs):
         # request has *not* yet been validated at this point
@@ -93,7 +90,7 @@ class AmazonSESBaseWebhookView(AnymailBaseWebhookView):
                 if message_string == "Successfully validated SNS topic for Amazon SES event publishing.":
                     pass  # this Notification is generated after SubscriptionConfirmation
                 else:
-                    raise AnymailWebhookValidationFailure("Unparsable SNS Message %r" % message_string)
+                    raise AnymailAPIError("Unparsable SNS Message %r" % message_string)
             else:
                 events = self.esp_to_anymail_events(ses_event, sns_message)
         elif sns_type == "SubscriptionConfirmation":
