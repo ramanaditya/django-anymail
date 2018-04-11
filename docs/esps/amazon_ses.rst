@@ -451,9 +451,9 @@ To use Anymail's inbound webhook with Amazon SES:
    in the last step, "Creating Receipt Rules."
 
 5. Anymail supports two SES receipt actions: S3 and SNS. (Both actually use SNS.)
-   You can choose either one: the SNS action is easier to set up, but the S3 action allows
-   you to receive larger messages. (If you aren't sure, start with SNS and change to S3
-   later if needed. Don't use both at the same time.)
+   You can choose either one: the SNS action is easier to set up, but the S3 action
+   allows you to receive larger messages and can be more robust.
+   (You can change at any time, but don't use both simultaneously.)
 
    * **For the SNS action:** choose the SNS Topic you created in step 2. Anymail will handle
      either Base64 or UTF-8 encoding; use Base64 if you're not sure.
@@ -468,7 +468,9 @@ after you complete the last step.
 
 If you are using the S3 receipt action, note that Anymail does not delete the S3 object.
 You can delete it from your code after successful processing, or set up S3 bucket policies
-to automatically delete older messages.
+to automatically delete older messages. In your inbound handler, you can retrieve the S3
+object key by prepending the "object key prefix" (if any) from your receipt rule to Anymail's
+:attr:`event.event_id <anymail.signals.AnymailInboundEvent.event_id>`.
 
 Amazon SNS imposes a 15 second limit on all notifications. This includes time to download
 the message (if you are using the S3 receipt action) and any processing in your
