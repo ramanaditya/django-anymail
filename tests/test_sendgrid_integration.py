@@ -7,14 +7,13 @@ from django.test import SimpleTestCase, override_settings, tag
 from anymail.exceptions import AnymailAPIError
 from anymail.message import AnymailMessage
 
-from .utils import AnymailTestMixin, sample_image_path, RUN_LIVE_TESTS
+from .utils import AnymailTestMixin, sample_image_path
 
 SENDGRID_TEST_API_KEY = os.getenv('SENDGRID_TEST_API_KEY')
 SENDGRID_TEST_TEMPLATE_ID = os.getenv('SENDGRID_TEST_TEMPLATE_ID')
 
 
 @tag('sendgrid', 'live')
-@unittest.skipUnless(RUN_LIVE_TESTS, "RUN_LIVE_TESTS disabled in this environment")
 @unittest.skipUnless(SENDGRID_TEST_API_KEY,
                      "Set SENDGRID_TEST_API_KEY environment variable "
                      "to run SendGrid integration tests")

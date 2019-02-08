@@ -14,14 +14,13 @@ from django.test import SimpleTestCase, override_settings, tag
 from anymail.exceptions import AnymailAPIError
 from anymail.message import AnymailMessage
 
-from .utils import AnymailTestMixin, sample_image_path, RUN_LIVE_TESTS
+from .utils import AnymailTestMixin, sample_image_path
 
 MAILGUN_TEST_API_KEY = os.getenv('MAILGUN_TEST_API_KEY')
 MAILGUN_TEST_DOMAIN = os.getenv('MAILGUN_TEST_DOMAIN')
 
 
 @tag('mailgun', 'live')
-@unittest.skipUnless(RUN_LIVE_TESTS, "RUN_LIVE_TESTS disabled in this environment")
 @unittest.skipUnless(MAILGUN_TEST_API_KEY and MAILGUN_TEST_DOMAIN,
                      "Set MAILGUN_TEST_API_KEY and MAILGUN_TEST_DOMAIN environment variables "
                      "to run Mailgun integration tests")

@@ -8,30 +8,10 @@ import uuid
 import warnings
 from base64 import b64decode
 from contextlib import contextmanager
-from distutils.util import strtobool
 
 import six
 from django.test import Client
 from six.moves import StringIO
-
-
-def envbool(var, default=False):
-    """Returns value of environment variable var as a bool, or default if not set.
-
-    Converts `'true'` to `True`, and `'false'` to `False`.
-    See :func:`~distutils.util.strtobool` for full list of allowable values.
-    """
-    val = os.getenv(var, None)
-    if val is None:
-        return default
-    else:
-        return strtobool(val)
-
-
-# RUN_LIVE_TESTS: whether to run live API integration tests.
-# True by default, except in CONTINUOUS_INTEGRATION job.
-# (See comments and overrides in .travis.yml.)
-RUN_LIVE_TESTS = envbool('RUN_LIVE_TESTS', default=not envbool('CONTINUOUS_INTEGRATION'))
 
 
 def decode_att(att):
