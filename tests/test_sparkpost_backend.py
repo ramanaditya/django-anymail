@@ -8,8 +8,7 @@ import os
 import requests
 import six
 from django.core import mail
-from django.test import SimpleTestCase
-from django.test.utils import override_settings
+from django.test import SimpleTestCase, override_settings, tag
 from django.utils.timezone import get_fixed_timezone, override as override_current_timezone, utc
 from mock import patch
 from sparkpost.exceptions import SparkPostAPIException
@@ -21,6 +20,7 @@ from anymail.message import attach_inline_image_file
 from .utils import AnymailTestMixin, decode_att, SAMPLE_IMAGE_FILENAME, sample_image_path, sample_image_content
 
 
+@tag('sparkpost')
 @override_settings(EMAIL_BACKEND='anymail.backends.sparkpost.EmailBackend',
                    ANYMAIL={'SPARKPOST_API_KEY': 'test_api_key'})
 class SparkPostBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
@@ -82,6 +82,7 @@ class SparkPostBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
             raise AssertionError(msg or "ESP API was called and shouldn't have been")
 
 
+@tag('sparkpost')
 class SparkPostBackendStandardEmailTests(SparkPostBackendMockAPITestCase):
     """Test backend support for Django standard email features"""
 
@@ -325,6 +326,7 @@ class SparkPostBackendStandardEmailTests(SparkPostBackendMockAPITestCase):
             self.message.send()
 
 
+@tag('sparkpost')
 class SparkPostBackendAnymailFeatureTests(SparkPostBackendMockAPITestCase):
     """Test backend support for Anymail added features"""
 
@@ -545,6 +547,7 @@ class SparkPostBackendAnymailFeatureTests(SparkPostBackendMockAPITestCase):
     #   modify those errors.
 
 
+@tag('sparkpost')
 class SparkPostBackendRecipientsRefusedTests(SparkPostBackendMockAPITestCase):
     """Should raise AnymailRecipientsRefused when *all* recipients are rejected or invalid"""
 
@@ -586,6 +589,7 @@ class SparkPostBackendRecipientsRefusedTests(SparkPostBackendMockAPITestCase):
         self.assertEqual(sent, 1)  # refused message is included in sent count
 
 
+@tag('sparkpost')
 @override_settings(EMAIL_BACKEND="anymail.backends.sparkpost.EmailBackend")
 class SparkPostBackendConfigurationTests(SimpleTestCase, AnymailTestMixin):
     """Test various SparkPost client options"""

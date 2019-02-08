@@ -6,7 +6,7 @@ import hashlib
 import hmac
 from base64 import b64encode
 from django.core.exceptions import ImproperlyConfigured
-from django.test import override_settings
+from django.test import override_settings, tag
 from django.utils.timezone import utc
 from mock import ANY
 
@@ -48,6 +48,7 @@ def mandrill_args(events=None,
     }
 
 
+@tag('mandrill')
 class MandrillWebhookSettingsTestCase(WebhookTestCase):
     def test_requires_webhook_key(self):
         with self.assertRaisesRegex(ImproperlyConfigured, r'MANDRILL_WEBHOOK_KEY'):
@@ -62,6 +63,7 @@ class MandrillWebhookSettingsTestCase(WebhookTestCase):
         self.assertEqual(response.status_code, 200)
 
 
+@tag('mandrill')
 @override_settings(ANYMAIL_MANDRILL_WEBHOOK_KEY=TEST_WEBHOOK_KEY)
 class MandrillWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixin):
     should_warn_if_no_auth = False  # because we check webhook signature
@@ -127,6 +129,7 @@ class MandrillWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixi
         self.assertEqual(response.status_code, 400)
 
 
+@tag('mandrill')
 @override_settings(ANYMAIL_MANDRILL_WEBHOOK_KEY=TEST_WEBHOOK_KEY)
 class MandrillTrackingTestCase(WebhookTestCase):
 

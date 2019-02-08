@@ -1,6 +1,7 @@
 import json
 from base64 import b64encode
 
+from django.test import tag
 from mock import ANY
 
 from anymail.inbound import AnymailInboundMessage
@@ -11,6 +12,7 @@ from .utils import sample_image_content, sample_email_content
 from .webhook_cases import WebhookTestCase
 
 
+@tag('mailjet')
 class MailjetInboundTestCase(WebhookTestCase):
     def test_inbound_basics(self):
         raw_event = {

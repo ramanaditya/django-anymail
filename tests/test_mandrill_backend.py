@@ -7,8 +7,7 @@ from email.mime.image import MIMEImage
 
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase
-from django.test.utils import override_settings
+from django.test import SimpleTestCase, override_settings, tag
 from django.utils.timezone import get_fixed_timezone, override as override_current_timezone
 
 from anymail.exceptions import (AnymailAPIError, AnymailRecipientsRefused,
@@ -19,6 +18,7 @@ from .mock_requests_backend import RequestsBackendMockAPITestCase, SessionSharin
 from .utils import sample_image_content, sample_image_path, SAMPLE_IMAGE_FILENAME, AnymailTestMixin, decode_att
 
 
+@tag('mandrill')
 @override_settings(EMAIL_BACKEND='anymail.backends.mandrill.EmailBackend',
                    ANYMAIL={'MANDRILL_API_KEY': 'test_api_key'})
 class MandrillBackendMockAPITestCase(RequestsBackendMockAPITestCase):
@@ -35,6 +35,7 @@ class MandrillBackendMockAPITestCase(RequestsBackendMockAPITestCase):
         self.message = mail.EmailMultiAlternatives('Subject', 'Text Body', 'from@example.com', ['to@example.com'])
 
 
+@tag('mandrill')
 class MandrillBackendStandardEmailTests(MandrillBackendMockAPITestCase):
     """Test backend support for Django mail wrappers"""
 
@@ -267,6 +268,7 @@ class MandrillBackendStandardEmailTests(MandrillBackendMockAPITestCase):
             self.message.send()
 
 
+@tag('mandrill')
 class MandrillBackendAnymailFeatureTests(MandrillBackendMockAPITestCase):
     """Test backend support for Anymail added features"""
 
@@ -534,6 +536,7 @@ class MandrillBackendAnymailFeatureTests(MandrillBackendMockAPITestCase):
         self.assertRegex(str(err), r"Decimal.*is not JSON serializable")  # original message
 
 
+@tag('mandrill')
 class MandrillBackendRecipientsRefusedTests(MandrillBackendMockAPITestCase):
     """Should raise AnymailRecipientsRefused when *all* recipients are rejected or invalid"""
 
@@ -588,11 +591,13 @@ class MandrillBackendRecipientsRefusedTests(MandrillBackendMockAPITestCase):
         self.assertEqual(sent, 1)  # refused message is included in sent count
 
 
+@tag('mandrill')
 class MandrillBackendSessionSharingTestCase(SessionSharingTestCasesMixin, MandrillBackendMockAPITestCase):
     """Requests session sharing tests"""
     pass  # tests are defined in the mixin
 
 
+@tag('mandrill')
 @override_settings(EMAIL_BACKEND="anymail.backends.mandrill.EmailBackend")
 class MandrillBackendImproperlyConfiguredTests(SimpleTestCase, AnymailTestMixin):
     """Test backend without required settings"""

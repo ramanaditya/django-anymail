@@ -7,8 +7,7 @@ from email.mime.image import MIMEImage
 
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase
-from django.test.utils import override_settings
+from django.test import SimpleTestCase, override_settings, tag
 
 from anymail.exceptions import (
     AnymailAPIError, AnymailSerializationError,
@@ -19,6 +18,7 @@ from .mock_requests_backend import RequestsBackendMockAPITestCase, SessionSharin
 from .utils import sample_image_content, sample_image_path, SAMPLE_IMAGE_FILENAME, AnymailTestMixin, decode_att
 
 
+@tag('postmark')
 @override_settings(EMAIL_BACKEND='anymail.backends.postmark.EmailBackend',
                    ANYMAIL={'POSTMARK_SERVER_TOKEN': 'test_server_token'})
 class PostmarkBackendMockAPITestCase(RequestsBackendMockAPITestCase):
@@ -36,6 +36,7 @@ class PostmarkBackendMockAPITestCase(RequestsBackendMockAPITestCase):
         self.message = mail.EmailMultiAlternatives('Subject', 'Text Body', 'from@example.com', ['to@example.com'])
 
 
+@tag('postmark')
 class PostmarkBackendStandardEmailTests(PostmarkBackendMockAPITestCase):
     """Test backend support for Django standard email features"""
 
@@ -318,6 +319,7 @@ class PostmarkBackendStandardEmailTests(PostmarkBackendMockAPITestCase):
             self.message.send()
 
 
+@tag('postmark')
 class PostmarkBackendAnymailFeatureTests(PostmarkBackendMockAPITestCase):
     """Test backend support for Anymail added features"""
 
@@ -605,6 +607,7 @@ class PostmarkBackendAnymailFeatureTests(PostmarkBackendMockAPITestCase):
         self.assertRegex(str(err), r"Decimal.*is not JSON serializable")  # original message
 
 
+@tag('postmark')
 class PostmarkBackendRecipientsRefusedTests(PostmarkBackendMockAPITestCase):
     """Should raise AnymailRecipientsRefused when *all* recipients are rejected or invalid"""
 
@@ -699,11 +702,13 @@ class PostmarkBackendRecipientsRefusedTests(PostmarkBackendMockAPITestCase):
         self.assertEqual(status.recipients['spam@example.com'].status, 'rejected')
 
 
+@tag('postmark')
 class PostmarkBackendSessionSharingTestCase(SessionSharingTestCasesMixin, PostmarkBackendMockAPITestCase):
     """Requests session sharing tests"""
     pass  # tests are defined in the mixin
 
 
+@tag('postmark')
 @override_settings(EMAIL_BACKEND="anymail.backends.postmark.EmailBackend")
 class PostmarkBackendImproperlyConfiguredTests(SimpleTestCase, AnymailTestMixin):
     """Test ESP backend without required settings in place"""

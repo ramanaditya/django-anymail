@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 
+from django.test import tag
 from django.utils.timezone import utc
 from mock import ANY
 
@@ -9,6 +10,7 @@ from anymail.webhooks.mailjet import MailjetTrackingWebhookView
 from .webhook_cases import WebhookBasicAuthTestsMixin, WebhookTestCase
 
 
+@tag('mailjet')
 class MailjetWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixin):
     def call_webhook(self):
         return self.client.post('/anymail/mailjet/tracking/',
@@ -17,6 +19,7 @@ class MailjetWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixin
     # Actual tests are in WebhookBasicAuthTestsMixin
 
 
+@tag('mailjet')
 class MailjetDeliveryTestCase(WebhookTestCase):
 
     def test_sent_event(self):

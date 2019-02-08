@@ -9,8 +9,7 @@ from email.mime.image import MIMEImage
 
 import six
 from django.core import mail
-from django.test import SimpleTestCase
-from django.test.utils import override_settings
+from django.test import SimpleTestCase, override_settings, tag
 from django.utils.timezone import get_fixed_timezone, override as override_current_timezone
 
 from anymail.exceptions import (AnymailAPIError, AnymailConfigurationError, AnymailSerializationError,
@@ -24,6 +23,7 @@ from .utils import sample_image_content, sample_image_path, SAMPLE_IMAGE_FILENAM
 longtype = int if six.PY3 else long  # NOQA: F821
 
 
+@tag('sendgrid')
 @override_settings(EMAIL_BACKEND='anymail.backends.sendgrid.EmailBackend',
                    ANYMAIL={'SENDGRID_API_KEY': 'test_api_key'})
 class SendGridBackendMockAPITestCase(RequestsBackendMockAPITestCase):
@@ -36,6 +36,7 @@ class SendGridBackendMockAPITestCase(RequestsBackendMockAPITestCase):
         self.message = mail.EmailMultiAlternatives('Subject', 'Text Body', 'from@example.com', ['to@example.com'])
 
 
+@tag('sendgrid')
 class SendGridBackendStandardEmailTests(SendGridBackendMockAPITestCase):
     """Test backend support for Django standard email features"""
 
@@ -328,6 +329,7 @@ class SendGridBackendStandardEmailTests(SendGridBackendMockAPITestCase):
             self.message.send()
 
 
+@tag('sendgrid')
 class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
     """Test backend support for Anymail added features"""
 
@@ -709,6 +711,7 @@ class SendGridBackendAnymailFeatureTests(SendGridBackendMockAPITestCase):
                          {"email": "from@example.com", "name": "Sender, Inc."})
 
 
+@tag('sendgrid')
 class SendGridBackendRecipientsRefusedTests(SendGridBackendMockAPITestCase):
     """Should raise AnymailRecipientsRefused when *all* recipients are rejected or invalid"""
 
@@ -718,11 +721,13 @@ class SendGridBackendRecipientsRefusedTests(SendGridBackendMockAPITestCase):
     pass  # not applicable to this backend
 
 
+@tag('sendgrid')
 class SendGridBackendSessionSharingTestCase(SessionSharingTestCasesMixin, SendGridBackendMockAPITestCase):
     """Requests session sharing tests"""
     pass  # tests are defined in the mixin
 
 
+@tag('sendgrid')
 @override_settings(EMAIL_BACKEND="anymail.backends.sendgrid.EmailBackend")
 class SendGridBackendImproperlyConfiguredTests(SimpleTestCase, AnymailTestMixin):
     """Test ESP backend without required settings in place"""
@@ -732,6 +737,7 @@ class SendGridBackendImproperlyConfiguredTests(SimpleTestCase, AnymailTestMixin)
             mail.send_mail('Subject', 'Message', 'from@example.com', ['to@example.com'])
 
 
+@tag('sendgrid')
 @override_settings(EMAIL_BACKEND="anymail.backends.sendgrid.EmailBackend")
 class SendGridBackendDisallowsV2Tests(SimpleTestCase, AnymailTestMixin):
     """Using v2-API-only features should cause errors with v3 backend"""

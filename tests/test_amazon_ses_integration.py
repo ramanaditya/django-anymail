@@ -5,8 +5,7 @@ import os
 import unittest
 import warnings
 
-from django.test import SimpleTestCase
-from django.test.utils import override_settings
+from django.test import SimpleTestCase, override_settings, tag
 
 from anymail.exceptions import AnymailAPIError
 from anymail.message import AnymailMessage
@@ -43,6 +42,7 @@ AMAZON_SES_TEST_REGION_NAME = os.getenv("AMAZON_SES_TEST_REGION_NAME", "us-east-
         },
         "AMAZON_SES_CONFIGURATION_SET_NAME": "TestConfigurationSet",  # actual config set in Anymail test account
     })
+@tag('amazon_ses', 'live')
 class AmazonSESBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
     """Amazon SES API integration tests
 

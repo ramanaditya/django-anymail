@@ -1,12 +1,13 @@
 from datetime import date
 from django.core import mail
-from django.test import override_settings
+from django.test import override_settings, tag
 
 from anymail.exceptions import AnymailSerializationError
 
 from .test_mandrill_backend import MandrillBackendMockAPITestCase
 
 
+@tag('mandrill')
 class MandrillBackendDjrillFeatureTests(MandrillBackendMockAPITestCase):
     """Test backend support for deprecated features leftover from Djrill"""
 

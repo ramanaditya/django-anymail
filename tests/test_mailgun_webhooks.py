@@ -4,7 +4,7 @@ from datetime import datetime
 import hashlib
 import hmac
 from django.core.exceptions import ImproperlyConfigured
-from django.test import override_settings
+from django.test import override_settings, tag
 from django.utils.timezone import utc
 from mock import ANY
 
@@ -59,6 +59,7 @@ def querydict_to_postdict(qd):
     }
 
 
+@tag('mailgun')
 class MailgunWebhookSettingsTestCase(WebhookTestCase):
     def test_requires_api_key(self):
         with self.assertRaises(ImproperlyConfigured):
@@ -66,6 +67,7 @@ class MailgunWebhookSettingsTestCase(WebhookTestCase):
                              data=json.dumps(mailgun_sign_payload({'event-data': {'event': 'delivered'}})))
 
 
+@tag('mailgun')
 @override_settings(ANYMAIL_MAILGUN_API_KEY=TEST_API_KEY)
 class MailgunWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixin):
     should_warn_if_no_auth = False  # because we check webhook signature
@@ -94,6 +96,7 @@ class MailgunWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixin
         self.assertEqual(response.status_code, 400)
 
 
+@tag('mailgun')
 @override_settings(ANYMAIL_MAILGUN_API_KEY=TEST_API_KEY)
 class MailgunTestCase(WebhookTestCase):
     # Tests for Mailgun's new webhooks (announced 2018-06-29)
@@ -445,6 +448,7 @@ class MailgunTestCase(WebhookTestCase):
         self.assertEqual(event.click_url, "https://example.com/test")
 
 
+@tag('mailgun')
 @override_settings(ANYMAIL_MAILGUN_API_KEY=TEST_API_KEY)
 class MailgunLegacyTestCase(WebhookTestCase):
     # Tests for Mailgun's "legacy" webhooks

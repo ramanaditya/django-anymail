@@ -1,6 +1,7 @@
 import json
 from base64 import b64encode
 
+from django.test import tag
 from mock import ANY
 
 from anymail.exceptions import AnymailConfigurationError
@@ -12,6 +13,7 @@ from .utils import sample_image_content, sample_email_content
 from .webhook_cases import WebhookTestCase
 
 
+@tag('postmark')
 class PostmarkInboundTestCase(WebhookTestCase):
     def test_inbound_basics(self):
         raw_event = {

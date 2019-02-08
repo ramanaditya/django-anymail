@@ -16,8 +16,7 @@ from email.mime.image import MIMEImage
 
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase
-from django.test.utils import override_settings
+from django.test import SimpleTestCase, override_settings, tag
 from django.utils.timezone import get_fixed_timezone, override as override_current_timezone
 
 from anymail.exceptions import (
@@ -30,6 +29,7 @@ from .utils import (AnymailTestMixin, sample_email_content,
                     sample_image_content, sample_image_path, SAMPLE_IMAGE_FILENAME)
 
 
+@tag('mailgun')
 @override_settings(EMAIL_BACKEND='anymail.backends.mailgun.EmailBackend',
                    ANYMAIL={'MAILGUN_API_KEY': 'test_api_key'})
 class MailgunBackendMockAPITestCase(RequestsBackendMockAPITestCase):
@@ -44,6 +44,7 @@ class MailgunBackendMockAPITestCase(RequestsBackendMockAPITestCase):
         self.message = mail.EmailMultiAlternatives('Subject', 'Text Body', 'from@example.com', ['to@example.com'])
 
 
+@tag('mailgun')
 class MailgunBackendStandardEmailTests(MailgunBackendMockAPITestCase):
     """Test backend support for Django standard email features"""
 
@@ -374,6 +375,7 @@ class MailgunBackendStandardEmailTests(MailgunBackendMockAPITestCase):
         self.assertEqual(sent, 0)
 
 
+@tag('mailgun')
 class MailgunBackendAnymailFeatureTests(MailgunBackendMockAPITestCase):
     """Test backend support for Anymail added features"""
 
@@ -563,6 +565,7 @@ class MailgunBackendAnymailFeatureTests(MailgunBackendMockAPITestCase):
     # (Anything that requests can serialize as a form field will work with Mailgun)
 
 
+@tag('mailgun')
 class MailgunBackendRecipientsRefusedTests(MailgunBackendMockAPITestCase):
     """Should raise AnymailRecipientsRefused when *all* recipients are rejected or invalid"""
 
@@ -594,11 +597,13 @@ class MailgunBackendRecipientsRefusedTests(MailgunBackendMockAPITestCase):
         self.assertEqual(sent, 0)
 
 
+@tag('mailgun')
 class MailgunBackendSessionSharingTestCase(SessionSharingTestCasesMixin, MailgunBackendMockAPITestCase):
     """Requests session sharing tests"""
     pass  # tests are defined in the mixin
 
 
+@tag('mailgun')
 @override_settings(EMAIL_BACKEND="anymail.backends.mailgun.EmailBackend")
 class MailgunBackendImproperlyConfiguredTests(SimpleTestCase, AnymailTestMixin):
     """Test ESP backend without required settings in place"""

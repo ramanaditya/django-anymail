@@ -2,8 +2,7 @@ import json
 import warnings
 from datetime import datetime
 
-import botocore.exceptions
-from django.test import override_settings
+from django.test import override_settings, tag
 from django.utils.timezone import utc
 from mock import ANY, patch
 
@@ -27,6 +26,7 @@ class AmazonSESWebhookTestsMixin(object):
             **kwargs)
 
 
+@tag('amazon_ses')
 class AmazonSESWebhookSecurityTests(WebhookTestCase, AmazonSESWebhookTestsMixin, WebhookBasicAuthTestsMixin):
     def call_webhook(self):
         return self.post_from_sns('/anymail/amazon_ses/tracking/',
@@ -43,6 +43,7 @@ class AmazonSESWebhookSecurityTests(WebhookTestCase, AmazonSESWebhookTestsMixin,
         self.assertEqual(response["WWW-Authenticate"], 'Basic realm="Anymail WEBHOOK_SECRET"')
 
 
+@tag('amazon_ses')
 class AmazonSESNotificationsTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
     def test_bounce_event(self):
         # This test includes a complete Amazon SES example event. (Later tests omit some payload for brevity.)
@@ -404,6 +405,7 @@ class AmazonSESNotificationsTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
             self.post_from_sns('/anymail/amazon_ses/tracking/', raw_sns_message)
 
 
+@tag('amazon_ses')
 class AmazonSESSubscriptionManagementTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
     # Anymail will automatically respond to SNS subscription notifications
     # if Anymail is configured to require basic auth via WEBHOOK_SECRET.

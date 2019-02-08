@@ -6,6 +6,7 @@ from datetime import datetime
 from textwrap import dedent
 
 import botocore.exceptions
+from django.test import tag
 from django.utils.timezone import utc
 from mock import ANY, patch
 
@@ -18,6 +19,7 @@ from .test_amazon_ses_webhooks import AmazonSESWebhookTestsMixin
 from .webhook_cases import WebhookTestCase
 
 
+@tag('amazon_ses')
 class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
 
     def setUp(self):

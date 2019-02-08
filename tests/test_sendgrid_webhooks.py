@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 
+from django.test import tag
 from django.utils.timezone import utc
 from mock import ANY
 
@@ -9,6 +10,7 @@ from anymail.webhooks.sendgrid import SendGridTrackingWebhookView
 from .webhook_cases import WebhookBasicAuthTestsMixin, WebhookTestCase
 
 
+@tag('sendgrid')
 class SendGridWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixin):
     def call_webhook(self):
         return self.client.post('/anymail/sendgrid/tracking/',
@@ -17,6 +19,7 @@ class SendGridWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixi
     # Actual tests are in WebhookBasicAuthTestsMixin
 
 
+@tag('sendgrid')
 class SendGridDeliveryTestCase(WebhookTestCase):
 
     def test_processed_event(self):

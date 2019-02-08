@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 
+from django.test import tag
 from django.utils.timezone import utc
 from mock import ANY
 
@@ -10,6 +11,7 @@ from anymail.webhooks.sparkpost import SparkPostTrackingWebhookView
 from .webhook_cases import WebhookBasicAuthTestsMixin, WebhookTestCase
 
 
+@tag('sparkpost')
 class SparkPostWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixin):
     def call_webhook(self):
         return self.client.post('/anymail/sparkpost/tracking/',
@@ -18,6 +20,7 @@ class SparkPostWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMix
     # Actual tests are in WebhookBasicAuthTestsMixin
 
 
+@tag('sparkpost')
 class SparkPostDeliveryTestCase(WebhookTestCase):
 
     def test_ping_event(self):

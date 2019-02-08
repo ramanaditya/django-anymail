@@ -10,8 +10,7 @@ import botocore.exceptions
 import six
 from django.core import mail
 from django.core.mail import BadHeaderError
-from django.test import SimpleTestCase
-from django.test.utils import override_settings
+from django.test import SimpleTestCase, override_settings, tag
 from mock import ANY, patch
 
 from anymail.exceptions import AnymailAPIError, AnymailUnsupportedFeature
@@ -20,6 +19,7 @@ from anymail.message import attach_inline_image_file, AnymailMessage
 from .utils import AnymailTestMixin, SAMPLE_IMAGE_FILENAME, sample_image_content, sample_image_path
 
 
+@tag('amazon_ses')
 @override_settings(EMAIL_BACKEND='anymail.backends.amazon_ses.EmailBackend')
 class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
     """TestCase that uses the Amazon SES EmailBackend with a mocked boto3 client"""
@@ -111,6 +111,7 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
             raise AssertionError(msg or "ESP API was called and shouldn't have been")
 
 
+@tag('amazon_ses')
 class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
     """Test backend support for Django standard email features"""
 
@@ -318,6 +319,7 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
                               headers={"X-Header": "custom header value\r\ninjected"}).send()
 
 
+@tag('amazon_ses')
 class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
     """Test backend support for Anymail added features"""
 
@@ -589,6 +591,7 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
         self.assertEqual(self.message.anymail_status.esp_response, response_content)
 
 
+@tag('amazon_ses')
 class AmazonSESBackendConfigurationTests(AmazonSESBackendMockAPITestCase):
     """Test configuration options"""
 

@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 
+from django.test import tag
 from django.utils.timezone import get_fixed_timezone, utc
 from mock import ANY
 
@@ -10,6 +11,7 @@ from anymail.webhooks.postmark import PostmarkTrackingWebhookView
 from .webhook_cases import WebhookBasicAuthTestsMixin, WebhookTestCase
 
 
+@tag('postmark')
 class PostmarkWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixin):
     def call_webhook(self):
         return self.client.post('/anymail/postmark/tracking/',
@@ -18,6 +20,7 @@ class PostmarkWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixi
     # Actual tests are in WebhookBasicAuthTestsMixin
 
 
+@tag('postmark')
 class PostmarkDeliveryTestCase(WebhookTestCase):
     def test_bounce_event(self):
         raw_event = {

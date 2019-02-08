@@ -3,7 +3,7 @@ from datetime import datetime
 from textwrap import dedent
 
 import six
-from django.test import override_settings
+from django.test import override_settings, tag
 from django.utils.timezone import utc
 from mock import ANY
 
@@ -19,6 +19,7 @@ from .utils import sample_image_content, sample_email_content
 from .webhook_cases import WebhookTestCase
 
 
+@tag('mailgun')
 @override_settings(ANYMAIL_MAILGUN_API_KEY=TEST_API_KEY)
 class MailgunInboundTestCase(WebhookTestCase):
     def test_inbound_basics(self):

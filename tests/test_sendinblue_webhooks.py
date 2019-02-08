@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 
+from django.test import tag
 from django.utils.timezone import utc
 from mock import ANY
 
@@ -9,6 +10,7 @@ from anymail.webhooks.sendinblue import SendinBlueTrackingWebhookView
 from .webhook_cases import WebhookBasicAuthTestsMixin, WebhookTestCase
 
 
+@tag('sendinblue')
 class SendinBlueWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMixin):
     def call_webhook(self):
         return self.client.post('/anymail/sendinblue/tracking/',
@@ -17,6 +19,7 @@ class SendinBlueWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMi
     # Actual tests are in WebhookBasicAuthTestsMixin
 
 
+@tag('sendinblue')
 class SendinBlueDeliveryTestCase(WebhookTestCase):
     # SendinBlue's webhook payload data doesn't seem to be documented anywhere.
     # There's a list of webhook events at https://apidocs.sendinblue.com/webhooks/#3.

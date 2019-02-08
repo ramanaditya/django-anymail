@@ -7,8 +7,7 @@ from email.mime.image import MIMEImage
 
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase
-from django.test.utils import override_settings
+from django.test import SimpleTestCase, override_settings, tag
 
 from anymail.exceptions import (AnymailAPIError, AnymailSerializationError,
                                 AnymailUnsupportedFeature,
@@ -19,6 +18,7 @@ from .mock_requests_backend import RequestsBackendMockAPITestCase, SessionSharin
 from .utils import sample_image_content, sample_image_path, SAMPLE_IMAGE_FILENAME, AnymailTestMixin, decode_att
 
 
+@tag('mailjet')
 @override_settings(EMAIL_BACKEND='anymail.backends.mailjet.EmailBackend',
                    ANYMAIL={
                        'MAILJET_API_KEY': '',
@@ -64,6 +64,7 @@ class MailjetBackendMockAPITestCase(RequestsBackendMockAPITestCase):
         ])
 
 
+@tag('mailjet')
 class MailjetBackendStandardEmailTests(MailjetBackendMockAPITestCase):
     """Test backend support for Django standard email features"""
 
@@ -354,6 +355,7 @@ class MailjetBackendStandardEmailTests(MailjetBackendMockAPITestCase):
             self.message.send()
 
 
+@tag('mailjet')
 class MailjetBackendAnymailFeatureTests(MailjetBackendMockAPITestCase):
     """Test backend support for Anymail added features"""
 
@@ -623,11 +625,13 @@ class MailjetBackendAnymailFeatureTests(MailjetBackendMockAPITestCase):
             self.message.send()
 
 
+@tag('mailjet')
 class MailjetBackendSessionSharingTestCase(SessionSharingTestCasesMixin, MailjetBackendMockAPITestCase):
     """Requests session sharing tests"""
     pass  # tests are defined in the mixin
 
 
+@tag('mailjet')
 @override_settings(EMAIL_BACKEND="anymail.backends.mailjet.EmailBackend")
 class MailjetBackendImproperlyConfiguredTests(SimpleTestCase, AnymailTestMixin):
     """Test ESP backend without required settings in place"""

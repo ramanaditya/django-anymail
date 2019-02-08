@@ -10,8 +10,7 @@ from email.mime.image import MIMEImage
 
 import six
 from django.core import mail
-from django.test import SimpleTestCase
-from django.test.utils import override_settings
+from django.test import SimpleTestCase, override_settings, tag
 from django.utils.timezone import get_fixed_timezone, override as override_current_timezone
 
 from anymail.exceptions import (AnymailAPIError, AnymailConfigurationError, AnymailSerializationError,
@@ -25,6 +24,7 @@ from .utils import sample_image_content, sample_image_path, SAMPLE_IMAGE_FILENAM
 longtype = int if six.PY3 else long  # NOQA: F821
 
 
+@tag('sendinblue')
 @override_settings(EMAIL_BACKEND='anymail.backends.sendinblue.EmailBackend',
                    ANYMAIL={'SENDINBLUE_API_KEY': 'test_api_key'})
 class SendinBlueBackendMockAPITestCase(RequestsBackendMockAPITestCase):
@@ -38,6 +38,7 @@ class SendinBlueBackendMockAPITestCase(RequestsBackendMockAPITestCase):
         self.message = mail.EmailMultiAlternatives('Subject', 'Text Body', 'from@example.com', ['to@example.com'])
 
 
+@tag('sendinblue')
 class SendinBlueBackendStandardEmailTests(SendinBlueBackendMockAPITestCase):
     """Test backend support for Django standard email features"""
 
@@ -274,6 +275,7 @@ class SendinBlueBackendStandardEmailTests(SendinBlueBackendMockAPITestCase):
             self.message.send()
 
 
+@tag('sendinblue')
 class SendinBlueBackendAnymailFeatureTests(SendinBlueBackendMockAPITestCase):
     """Test backend support for Anymail added features"""
 
@@ -510,6 +512,7 @@ class SendinBlueBackendAnymailFeatureTests(SendinBlueBackendMockAPITestCase):
         self.assertRegex(str(err), r"Decimal.*is not JSON serializable")  # original message
 
 
+@tag('sendinblue')
 class SendinBlueBackendRecipientsRefusedTests(SendinBlueBackendMockAPITestCase):
     """Should raise AnymailRecipientsRefused when *all* recipients are rejected or invalid"""
 
@@ -519,11 +522,13 @@ class SendinBlueBackendRecipientsRefusedTests(SendinBlueBackendMockAPITestCase):
     pass  # not applicable to this backend
 
 
+@tag('sendinblue')
 class SendinBlueBackendSessionSharingTestCase(SessionSharingTestCasesMixin, SendinBlueBackendMockAPITestCase):
     """Requests session sharing tests"""
     pass  # tests are defined in the mixin
 
 
+@tag('sendinblue')
 @override_settings(EMAIL_BACKEND="anymail.backends.sendinblue.EmailBackend")
 class SendinBlueBackendImproperlyConfiguredTests(SimpleTestCase, AnymailTestMixin):
     """Test ESP backend without required settings in place"""

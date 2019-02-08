@@ -1,6 +1,6 @@
 from textwrap import dedent
 
-from django.test import override_settings
+from django.test import override_settings, tag
 from mock import ANY
 
 from anymail.inbound import AnymailInboundMessage
@@ -11,6 +11,7 @@ from .test_mandrill_webhooks import TEST_WEBHOOK_KEY, mandrill_args
 from .webhook_cases import WebhookTestCase
 
 
+@tag('mandrill')
 @override_settings(ANYMAIL_MANDRILL_WEBHOOK_KEY=TEST_WEBHOOK_KEY)
 class MandrillInboundTestCase(WebhookTestCase):
     def test_inbound_basics(self):
