@@ -5,8 +5,6 @@ import json
 from datetime import datetime
 from email.mime.application import MIMEApplication
 
-import botocore.config
-import botocore.exceptions
 import six
 from django.core import mail
 from django.core.mail import BadHeaderError
@@ -61,8 +59,9 @@ class AmazonSESBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
         return mock_operation.return_value
 
     def set_mock_failure(self, response, operation_name="send_raw_email"):
+        from botocore.exceptions import ClientError
         mock_operation = getattr(self.mock_client_instance, operation_name)
-        mock_operation.side_effect = botocore.exceptions.ClientError(response, operation_name=operation_name)
+        mock_operation.side_effect = ClientError(response, operation_name=operation_name)
 
     def get_session_params(self):
         if self.mock_session.call_args is None:
@@ -638,7 +637,8 @@ class AmazonSESBackendConfigurationTests(AmazonSESBackendMockAPITestCase):
 
     def test_client_params_in_connection_init(self):
         """You can also supply credentials specifically for a particular EmailBackend connection instance"""
-        boto_config = botocore.config.Config(connect_timeout=30)
+        from botocore.config import Config
+        boto_config = Config(connect_timeout=30)
         conn = mail.get_connection(
             'anymail.backends.amazon_ses.EmailBackend',
             client_params={"aws_session_token": "test-session-token", "config": boto_config})

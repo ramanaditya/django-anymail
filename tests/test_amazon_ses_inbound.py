@@ -5,7 +5,6 @@ from base64 import b64encode
 from datetime import datetime
 from textwrap import dedent
 
-import botocore.exceptions
 from django.test import tag
 from django.utils.timezone import utc
 from mock import ANY, patch
@@ -272,7 +271,8 @@ class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
     def test_inbound_s3_failure_message(self):
         """Issue a helpful error when S3 download fails"""
         # Boto's error: "An error occurred (403) when calling the HeadObject operation: Forbidden")
-        self.mock_s3.download_fileobj.side_effect = botocore.exceptions.ClientError(
+        from botocore.exceptions import ClientError
+        self.mock_s3.download_fileobj.side_effect = ClientError(
             {'Error': {'Code': 403, 'Message': 'Forbidden'}}, operation_name='HeadObject')
 
         raw_ses_event = {
@@ -292,7 +292,7 @@ class AmazonSESInboundTests(WebhookTestCase, AmazonSESWebhookTestsMixin):
             "Anymail AmazonSESInboundWebhookView couldn't download S3 object 'YourBucket:inbound/the_object_key'"
         ) as cm:
             self.post_from_sns('/anymail/amazon_ses/inbound/', raw_sns_message)
-        self.assertIsInstance(cm.exception, botocore.exceptions.ClientError)  # both Boto and Anymail exception class
+        self.assertIsInstance(cm.exception, ClientError)  # both Boto and Anymail exception class
         self.assertIn("ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden",
                       str(cm.exception))  # original Boto message included
 

@@ -11,7 +11,6 @@ from django.core import mail
 from django.test import SimpleTestCase, override_settings, tag
 from django.utils.timezone import get_fixed_timezone, override as override_current_timezone, utc
 from mock import patch
-from sparkpost.exceptions import SparkPostAPIException
 
 from anymail.exceptions import (AnymailAPIError, AnymailUnsupportedFeature, AnymailRecipientsRefused,
                                 AnymailConfigurationError, AnymailInvalidAddress)
@@ -48,6 +47,7 @@ class SparkPostBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
         return self.mock_send.return_value
 
     def set_mock_failure(self, status_code=400, raw=b'{"errors":[{"message":"test error"}]}', encoding='utf-8'):
+        from sparkpost.exceptions import SparkPostAPIException
         # Need to build a real(-ish) requests.Response for SparkPostAPIException
         response = requests.Response()
         response.status_code = status_code
