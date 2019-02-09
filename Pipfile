@@ -14,12 +14,12 @@ six = "*"
 sparkpost = "*"
 
 [dev-packages]
-detox = "*"
+detox = "==0.18"
 flake8 = "*"
 mock = "*"
 sphinx = "*"
 sphinx-rtd-theme = "*"
-tox = "*"
+tox = "~=3.6.1"
 twine = "*"
 
 [requires]

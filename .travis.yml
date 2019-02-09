@@ -10,9 +10,15 @@ branches:
     - master
     - /^v\d+\.\d+(\.\d+)?(-\S*)?$/
 
+env:
+  global:
+    # Let Travis report failures that tox.ini would normally ignore:
+    - TOX_FORCE_IGNORE_OUTCOME=false
+
 matrix:
   include:
-    - { env: TOXENV="lint,docs", python: 3.6 }
+    - python: 3.6
+      env: TOXENV="lint,docs"
 
     # Anymail supports the same Python versions as Django, plus PyPy.
     # https://docs.djangoproject.com/en/dev/faq/install/#what-python-version-can-i-use-with-django
@@ -59,7 +65,8 @@ matrix:
 cache: pip
 
 install:
-  - pip install tox-travis
+  # pin tox to avoid https://github.com/tox-dev/tox/issues/1160
+  - pip install tox~=3.6.1
 
 script:
   - tox
