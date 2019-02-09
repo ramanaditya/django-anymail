@@ -52,15 +52,10 @@ matrix:
     - { env: TOXENV=django21-py37-none, python: 3.7 }
     - { env: TOXENV=django21-py37-amazon_ses, python: 3.7 }
     - { env: TOXENV=django21-py37-sparkpost, python: 3.7 }
-    # TESTING: Name a toxenv that doesn't exist: this should fail! (REMOVE before merge)
-    - { env: TOXENV=django21-py37-mailgun, python: 3.7 }
 
   allow_failures:
     - env: TOXENV=djangoMaster-py36-all
       python: 3.6
-    # TESTING: REMOVE before merge
-    - env: TOXENV=django21-py37-mailgun
-      python: 3.7
 
 cache: pip
 
