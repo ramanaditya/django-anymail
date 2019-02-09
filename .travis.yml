@@ -10,6 +10,11 @@ branches:
     - master
     - /^v\d+\.\d+(\.\d+)?(-\S*)?$/
 
+env:
+  global:
+    # Default: test with all ESP extra packages installed
+    - EXTRAS=all
+
 matrix:
   include:
     - { env: LINT_AND_DOCS=true, python: 3.6 }
@@ -42,6 +47,10 @@ matrix:
     - { env: DJANGO=2.2, python: pypy3.5-6.0 }
     # Django development master (direct from GitHub source):
     - { env: DJANGO=master, python: 3.6 }
+    # Install without optional extras (don't need to cover entire matrix)
+    - { env: DJANGO=2.2 EXTRAS=none, python: 3.7 }
+    # - { env: DJANGO=2.2 EXTRAS=amazon_ses, python: 3.7 }
+    # - { env: DJANGO=2.2 EXTRAS=sparkpost, python: 3.7 }
 
   allow_failures:
     - env: DJANGO=master
