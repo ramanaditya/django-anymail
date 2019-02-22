@@ -398,8 +398,7 @@ class PostmarkBackendAnymailFeatureTests(PostmarkBackendMockAPITestCase):
         data = self.get_api_call_json()
         self.assertEqual(data['TemplateAlias'], 'welcome-message')
 
-    def test_merge_data(self):
-        self.set_mock_response(raw=json.dumps([{
+    _mock_batch_response = json.dumps([{
             "ErrorCode": 0,
             "Message": "OK",
             "To": "alice@example.com",
@@ -411,8 +410,10 @@ class PostmarkBackendAnymailFeatureTests(PostmarkBackendMockAPITestCase):
             "To": "bob@example.com",
             "SubmittedAt": "2016-03-12T15:27:50.4468803-05:00",
             "MessageID": "e2ecbbfc-fe12-463d-b933-9fe22915106d",
-        }]).encode('utf-8'))
+        }]).encode('utf-8')
 
+    def test_merge_data(self):
+        self.set_mock_response(raw=self._mock_batch_response)
         message = AnymailMessage(
             from_email='from@example.com',
             template_id=1234567,  # Postmark only supports merge_data content in a template
@@ -451,20 +452,7 @@ class PostmarkBackendAnymailFeatureTests(PostmarkBackendMockAPITestCase):
 
     def test_merge_data_no_template(self):
         # merge_data={} can be used to force batch sending without a template
-        self.set_mock_response(raw=json.dumps([{
-            "ErrorCode": 0,
-            "Message": "OK",
-            "To": "alice@example.com",
-            "SubmittedAt": "2016-03-12T15:27:50.4468803-05:00",
-            "MessageID": "b7bc2f4a-e38e-4336-af7d-e6c392c2f817",
-        }, {
-            "ErrorCode": 0,
-            "Message": "OK",
-            "To": "bob@example.com",
-            "SubmittedAt": "2016-03-12T15:27:50.4468803-05:00",
-            "MessageID": "e2ecbbfc-fe12-463d-b933-9fe22915106d",
-        }]).encode('utf-8'))
-
+        self.set_mock_response(raw=self._mock_batch_response)
         message = AnymailMessage(
             from_email='from@example.com',
             to=['alice@example.com', 'Bob <bob@example.com>'],
@@ -495,6 +483,45 @@ class PostmarkBackendAnymailFeatureTests(PostmarkBackendMockAPITestCase):
         self.assertEqual(recipients['alice@example.com'].message_id, 'b7bc2f4a-e38e-4336-af7d-e6c392c2f817')
         self.assertEqual(recipients['bob@example.com'].status, 'sent')
         self.assertEqual(recipients['bob@example.com'].message_id, 'e2ecbbfc-fe12-463d-b933-9fe22915106d')
+
+    def test_merge_metadata(self):
+        self.set_mock_response(raw=self._mock_batch_response)
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.merge_metadata = {
+            'alice@example.com': {'order_id': 123, 'tier': 'premium'},
+            'bob@example.com': {'order_id': 678},
+        }
+        self.message.metadata = {'notification_batch': 'zx912'}
+        self.message.send()
+
+        self.assert_esp_called('/email/batch')
+        data = self.get_api_call_json()
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]["To"], "alice@example.com")
+        # metadata and merge_metadata[recipient] are combined:
+        self.assertEqual(data[0]["Metadata"], {'order_id': 123, 'tier': 'premium', 'notification_batch': 'zx912'})
+        self.assertEqual(data[1]["To"], "Bob <bob@example.com>")
+        self.assertEqual(data[1]["Metadata"], {'order_id': 678, 'notification_batch': 'zx912'})
+
+    def test_merge_metadata_with_template(self):
+        self.set_mock_response(raw=self._mock_batch_response)
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.template_id = 1234567
+        self.message.merge_metadata = {
+            'alice@example.com': {'order_id': 123},
+            'bob@example.com': {'order_id': 678, 'tier': 'premium'},
+        }
+        self.message.send()
+
+        self.assert_esp_called('/email/batchWithTemplates')
+        data = self.get_api_call_json()
+        messages = data["Messages"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["To"], "alice@example.com")
+        # metadata and merge_metadata[recipient] are combined:
+        self.assertEqual(messages[0]["Metadata"], {'order_id': 123})
+        self.assertEqual(messages[1]["To"], "Bob <bob@example.com>")
+        self.assertEqual(messages[1]["Metadata"], {'order_id': 678, 'tier': 'premium'})
 
     def test_default_omits_options(self):
         """Make sure by default we don't send any ESP-specific options.

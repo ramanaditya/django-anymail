@@ -156,10 +156,11 @@ class PostmarkPayload(RequestsPayload):
         self.to_emails = []
         self.cc_and_bcc_emails = []  # need to track (separately) for parse_recipient_status
         self.merge_data = None
+        self.merge_metadata = None
         super(PostmarkPayload, self).__init__(message, defaults, backend, headers=headers, *args, **kwargs)
 
     def get_api_endpoint(self):
-        batch_send = self.merge_data is not None and len(self.to_emails) > 1
+        batch_send = self.is_batch() and len(self.to_emails) > 1
         if 'TemplateAlias' in self.data or 'TemplateId' in self.data or 'TemplateModel' in self.data:
             if batch_send:
                 return "email/batchWithTemplates"
@@ -197,6 +198,14 @@ class PostmarkPayload(RequestsPayload):
                 data["TemplateModel"].update(recipient_data)
             else:
                 data["TemplateModel"] = recipient_data
+        if self.merge_metadata and to.addr_spec in self.merge_metadata:
+            recipient_metadata = self.merge_metadata[to.addr_spec]
+            if "Metadata" in data:
+                # merge recipient_metadata into toplevel metadata
+                data["Metadata"] = data["Metadata"].copy()
+                data["Metadata"].update(recipient_metadata)
+            else:
+                data["Metadata"] = recipient_metadata
         return data
 
     #
@@ -297,6 +306,10 @@ class PostmarkPayload(RequestsPayload):
 
     def set_merge_global_data(self, merge_global_data):
         self.data["TemplateModel"] = merge_global_data
+
+    def set_merge_metadata(self, merge_metadata):
+        # late-bind
+        self.merge_metadata = merge_metadata
 
     def set_esp_extra(self, extra):
         self.data.update(extra)

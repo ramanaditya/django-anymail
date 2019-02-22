@@ -79,6 +79,9 @@ class MandrillPayload(RequestsPayload):
 
     def serialize_data(self):
         self.process_esp_extra()
+        if self.is_batch():
+            # hide recipients from each other
+            self.data['message']['preserve_recipients'] = False
         return self.serialize_json(self.data)
 
     #
@@ -163,7 +166,6 @@ class MandrillPayload(RequestsPayload):
         self.data.setdefault("template_content", [])  # Mandrill requires something here
 
     def set_merge_data(self, merge_data):
-        self.data['message']['preserve_recipients'] = False  # if merge, hide recipients from each other
         self.data['message']['merge_vars'] = [
             {'rcpt': rcpt, 'vars': [{'name': key, 'content': rcpt_data[key]}
                                     for key in sorted(rcpt_data.keys())]}  # sort for testing reproducibility
@@ -174,6 +176,13 @@ class MandrillPayload(RequestsPayload):
         self.data['message']['global_merge_vars'] = [
             {'name': var, 'content': value}
             for var, value in merge_global_data.items()
+        ]
+
+    def set_merge_metadata(self, merge_metadata):
+        # recipient_metadata format is similar to, but not quite the same as, merge_vars:
+        self.data['message']['recipient_metadata'] = [
+            {'rcpt': rcpt, 'values': rcpt_data}
+            for rcpt, rcpt_data in merge_metadata.items()
         ]
 
     def set_esp_extra(self, extra):

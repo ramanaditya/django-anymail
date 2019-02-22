@@ -95,11 +95,12 @@ class SparkPostPayload(BasePayload):
         self.all_recipients = []
         self.to_emails = []
         self.merge_data = {}
+        self.merge_metadata = {}
 
     def get_api_params(self):
         # Compose recipients param from to_emails and merge_data (if any)
         recipients = []
-        if len(self.merge_data) > 0:
+        if self.is_batch():
             # Build JSON recipient structures
             for email in self.to_emails:
                 rcpt = {'address': {'email': email.addr_spec}}
@@ -109,6 +110,10 @@ class SparkPostPayload(BasePayload):
                     rcpt['substitution_data'] = self.merge_data[email.addr_spec]
                 except KeyError:
                     pass  # no merge_data or none for this recipient
+                try:
+                    rcpt['metadata'] = self.merge_metadata[email.addr_spec]
+                except KeyError:
+                    pass  # no merge_metadata or none for this recipient
                 recipients.append(rcpt)
         else:
             # Just use simple recipients list
@@ -212,6 +217,9 @@ class SparkPostPayload(BasePayload):
 
     def set_merge_data(self, merge_data):
         self.merge_data = merge_data  # merged into params['recipients'] in get_api_params
+
+    def set_merge_metadata(self, merge_metadata):
+        self.merge_metadata = merge_metadata  # merged into params['recipients'] in get_api_params
 
     def set_merge_global_data(self, merge_global_data):
         self.params['substitution_data'] = merge_global_data

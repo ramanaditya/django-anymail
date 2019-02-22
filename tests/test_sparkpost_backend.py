@@ -443,6 +443,24 @@ class SparkPostBackendAnymailFeatureTests(SparkPostBackendMockAPITestCase):
         ])
         self.assertEqual(params['substitution_data'], {'group': "Users", 'site': "ExampleCo"})
 
+    def test_merge_metadata(self):
+        self.set_mock_response(accepted=2)
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.merge_metadata = {
+            'alice@example.com': {'order_id': 123},
+            'bob@example.com': {'order_id': 678, 'tier': 'premium'},
+        }
+        self.message.metadata = {'notification_batch': 'zx912'}
+        self.message.send()
+        params = self.get_send_params()
+        self.assertEqual(params['recipients'], [
+            {'address': {'email': 'alice@example.com'},
+             'metadata': {'order_id': 123}},
+            {'address': {'email': 'bob@example.com', 'name': 'Bob'},
+             'metadata': {'order_id': 678, 'tier': 'premium'}}
+        ])
+        self.assertEqual(params['metadata'], {'notification_batch': 'zx912'})
+
     def test_default_omits_options(self):
         """Make sure by default we don't send any ESP-specific options.
 

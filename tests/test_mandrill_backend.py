@@ -379,7 +379,25 @@ class MandrillBackendAnymailFeatureTests(MandrillBackendMockAPITestCase):
             {'name': "group", 'content': "Users"},
             {'name': "site", 'content': "ExampleCo"},
         ])
-        self.assertEqual(data['message']['preserve_recipients'], False)  # we force with merge_data
+        self.assertIs(data['message']['preserve_recipients'], False)  # merge_data implies batch
+
+    def test_merge_metadata(self):
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.merge_metadata = {
+            'alice@example.com': {'order_id': 123, 'tier': 'premium'},
+            'bob@example.com': {'order_id': 678},
+        }
+        self.message.metadata = {'notification_batch': 'zx912'}
+        self.message.send()
+        data = self.get_api_call_json()
+        self.assertCountEqual(data['message']['recipient_metadata'], [{
+            'rcpt': 'alice@example.com',
+            'values': {'order_id': 123, 'tier': 'premium'},
+        }, {
+            'rcpt': 'bob@example.com',
+            'values': {'order_id': 678},
+        }])
+        self.assertIs(data['message']['preserve_recipients'], False)  # merge_metadata implies batch
 
     def test_missing_from(self):
         """Make sure a missing from_email omits from* from API call.
