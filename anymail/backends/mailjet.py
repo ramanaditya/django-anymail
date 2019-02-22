@@ -80,8 +80,10 @@ class MailjetPayload(RequestsPayload):
             'Content-Type': 'application/json',
         }
         # Late binding of recipients and their variables
-        self.recipients = {}
-        self.merge_data = None
+        self.recipients = {'to': []}
+        self.metadata = None
+        self.merge_data = {}
+        self.merge_metadata = {}
         super(MailjetPayload, self).__init__(message, defaults, backend,
                                              auth=auth, headers=http_headers, *args, **kwargs)
 
@@ -89,22 +91,37 @@ class MailjetPayload(RequestsPayload):
         return "send"
 
     def serialize_data(self):
-        self._finish_recipients()
         self._populate_sender_from_template()
+        if self.is_batch():
+            self.data = {'Messages': [
+                self._data_for_recipient(to_addr)
+                for to_addr in self.recipients['to']
+            ]}
         return self.serialize_json(self.data)
 
-    #
-    # Payload construction
-    #
+    def _data_for_recipient(self, email):
+        # Return send data for single recipient, without modifying self.data
+        data = self.data.copy()
+        data['To'] = self._format_email_for_mailjet(email)
 
-    def _finish_recipients(self):
-        # NOTE do not set both To and Recipients, it behaves specially: each
-        # recipient receives a separate mail but the To address receives one
-        # listing all recipients.
-        if "cc" in self.recipients or "bcc" in self.recipients:
-            self._finish_recipients_single()
-        else:
-            self._finish_recipients_with_vars()
+        if email.addr_spec in self.merge_data:
+            recipient_merge_data = self.merge_data[email.addr_spec]
+            if 'Vars' in data:
+                data['Vars'] = data['Vars'].copy()  # clone merge_global_data
+                data['Vars'].update(recipient_merge_data)
+            else:
+                data['Vars'] = recipient_merge_data
+
+        if email.addr_spec in self.merge_metadata:
+            recipient_metadata = self.merge_metadata[email.addr_spec]
+            if self.metadata:
+                metadata = self.metadata.copy()  # clone toplevel metadata
+                metadata.update(recipient_metadata)
+            else:
+                metadata = recipient_metadata
+            data["Mj-EventPayLoad"] = self.serialize_json(metadata)
+
+        return data
 
     def _populate_sender_from_template(self):
         # If no From address was given, use the address from the template.
@@ -137,42 +154,21 @@ class MailjetPayload(RequestsPayload):
                                               email_message=self.message, response=response, backend=self.backend)
             self.set_from_email(parsed)
 
-    def _finish_recipients_with_vars(self):
-        """Send bulk mail with different variables for each mail."""
-        assert "Cc" not in self.data and "Bcc" not in self.data
-        recipients = []
-        merge_data = self.merge_data or {}
-        for email in self.recipients["to"]:
-            recipient = {
-                "Email": email.addr_spec,
-                "Name": email.display_name,
-                "Vars": merge_data.get(email.addr_spec)
-            }
-            # Strip out empty Name and Vars
-            recipient = {k: v for k, v in recipient.items() if v}
-            recipients.append(recipient)
-        self.data["Recipients"] = recipients
+    def _format_email_for_mailjet(self, email):
+        """Return EmailAddress email converted to a string that Mailjet can parse properly"""
+        # Workaround Mailjet 3.0 bug parsing display-name with commas
+        # (see test_comma_in_display_name in test_mailjet_backend for details)
+        if "," in email.display_name:
+            return EmailAddress(email.display_name.encode('utf-8'), email.addr_spec).formataddr('utf-8')
+        else:
+            return email.address
 
-    def _finish_recipients_single(self):
-        """Send a single mail with some To, Cc and Bcc headers."""
-        assert "Recipients" not in self.data
-        if self.merge_data:
-            # When Cc and Bcc headers are given, then merge data cannot be set.
-            raise NotImplementedError("Cannot set merge data with bcc/cc")
-        for recipient_type, emails in self.recipients.items():
-            # Workaround Mailjet 3.0 bug parsing display-name with commas
-            # (see test_comma_in_display_name in test_mailjet_backend for details)
-            formatted_emails = [
-                email.address if "," not in email.display_name
-                # else name has a comma, so force it into MIME encoded-word utf-8 syntax:
-                else EmailAddress(email.display_name.encode('utf-8'), email.addr_spec).formataddr('utf-8')
-                for email in emails
-            ]
-            self.data[recipient_type.capitalize()] = ", ".join(formatted_emails)
+    #
+    # Payload construction
+    #
 
     def init_payload(self):
-        self.data = {
-        }
+        self.data = {}
 
     def set_from_email(self, email):
         self.data["FromEmail"] = email.addr_spec
@@ -181,9 +177,10 @@ class MailjetPayload(RequestsPayload):
 
     def set_recipients(self, recipient_type, emails):
         assert recipient_type in ["to", "cc", "bcc"]
-        # Will be handled later in serialize_data
         if emails:
-            self.recipients[recipient_type] = emails
+            self.recipients[recipient_type] = emails  # save for recipient_status processing
+            self.data[recipient_type.capitalize()] = ", ".join(
+                [self._format_email_for_mailjet(email) for email in emails])
 
     def set_subject(self, subject):
         self.data["Subject"] = subject
@@ -225,8 +222,8 @@ class MailjetPayload(RequestsPayload):
         self.data["Sender"] = email.addr_spec  # ??? v3 docs unclear
 
     def set_metadata(self, metadata):
-        # Mailjet expects a single string payload
         self.data["Mj-EventPayLoad"] = self.serialize_json(metadata)
+        self.metadata = metadata  # keep original in case we need to merge with merge_metadata
 
     def set_tags(self, tags):
         # The choices here are CustomID or Campaign, and Campaign seems closer
@@ -256,6 +253,10 @@ class MailjetPayload(RequestsPayload):
 
     def set_merge_global_data(self, merge_global_data):
         self.data["Vars"] = merge_global_data
+
+    def set_merge_metadata(self, merge_metadata):
+        # Will be handled later in serialize_data
+        self.merge_metadata = merge_metadata
 
     def set_esp_extra(self, extra):
         self.data.update(extra)

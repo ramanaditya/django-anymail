@@ -77,7 +77,7 @@ class MailjetBackendStandardEmailTests(MailjetBackendMockAPITestCase):
         self.assertEqual(data['Subject'], "Subject here")
         self.assertEqual(data['Text-part'], "Here is the message.")
         self.assertEqual(data['FromEmail'], "from@sender.example.com")
-        self.assertEqual(data['Recipients'], [{"Email": "to@example.com"}])
+        self.assertEqual(data['To'], "to@example.com")
 
     def test_name_addr(self):
         """Make sure RFC2822 name-addr format (with display-name) is allowed
@@ -99,7 +99,11 @@ class MailjetBackendStandardEmailTests(MailjetBackendMockAPITestCase):
         self.assertEqual(data['Bcc'], 'Blind Copy <bcc1@example.com>, bcc2@example.com')
 
     def test_comma_in_display_name(self):
-        # note there are two paths: with cc/bcc, and without
+        # Mailjet 3.0 API doesn't properly parse RFC-2822 quoted display-names from To/Cc/Bcc:
+        # `To: "Recipient, Ltd." <to@example.com>` tries to send messages to `"Recipient`
+        # and to `Ltd.` (neither of which are actual email addresses).
+        # As a workaround, force MIME "encoded-word" utf-8 encoding, which gets past Mailjet's broken parsing.
+        # (This shouldn't be necessary in Mailjet 3.1, where Name becomes a separate json field for Cc/Bcc.)
         msg = mail.EmailMessage(
             'Subject', 'Message', '"Example, Inc." <from@example.com>',
             ['"Recipient, Ltd." <to@example.com>'])
@@ -107,17 +111,6 @@ class MailjetBackendStandardEmailTests(MailjetBackendMockAPITestCase):
         data = self.get_api_call_json()
         self.assertEqual(data['FromName'], 'Example, Inc.')
         self.assertEqual(data['FromEmail'], 'from@example.com')
-        self.assertEqual(data['Recipients'][0]["Email"], "to@example.com")
-        self.assertEqual(data['Recipients'][0]["Name"], "Recipient, Ltd.")  # separate Name field works fine
-
-        # Mailjet 3.0 API doesn't properly parse RFC-2822 quoted display-names from To/Cc/Bcc:
-        # `To: "Recipient, Ltd." <to@example.com>` tries to send messages to `"Recipient`
-        # and to `Ltd.` (neither of which are actual email addresses).
-        # As a workaround, force MIME "encoded-word" utf-8 encoding, which gets past Mailjet's broken parsing.
-        # (This shouldn't be necessary in Mailjet 3.1, where Name becomes a separate json field for Cc/Bcc.)
-        msg.cc = ['cc@example.com']
-        msg.send()
-        data = self.get_api_call_json()
         # self.assertEqual(data['To'], '"Recipient, Ltd." <to@example.com>')  # this doesn't work
         self.assertEqual(data['To'], '=?utf-8?q?Recipient=2C_Ltd=2E?= <to@example.com>')  # workaround
 
@@ -492,19 +485,50 @@ class MailjetBackendAnymailFeatureTests(MailjetBackendMockAPITestCase):
             self.message.send()
 
     def test_merge_data(self):
-        self.message.to = ['alice@example.com']
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.cc = ['cc@example.com']
         self.message.template_id = '1234567'
         self.message.merge_data = {
             'alice@example.com': {'name': "Alice", 'group': "Developers"},
+            'bob@example.com': {'name': "Bob"},
         }
+        self.message.merge_global_data = {'group': "Users", 'site': "ExampleCo"}
         self.message.send()
+
         data = self.get_api_call_json()
-        self.assertEqual(data['Mj-TemplateID'], '1234567')
-        self.assertNotIn('Vars', data)
-        self.assertEqual(data['Recipients'], [{
-            'Email': 'alice@example.com',
-            'Vars': {'name': "Alice", 'group': "Developers"}
-        }])
+        messages = data['Messages']
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]['To'], 'alice@example.com')
+        self.assertEqual(messages[0]['Cc'], 'cc@example.com')
+        self.assertEqual(messages[0]['Mj-TemplateID'], '1234567')
+        self.assertEqual(messages[0]['Vars'],
+                         {'name': "Alice", 'group': "Developers", 'site': "ExampleCo"})
+
+        self.assertEqual(messages[1]['To'], 'Bob <bob@example.com>')
+        self.assertEqual(messages[1]['Cc'], 'cc@example.com')
+        self.assertEqual(messages[1]['Mj-TemplateID'], '1234567')
+        self.assertEqual(messages[1]['Vars'],
+                         {'name': "Bob", 'group': "Users", 'site': "ExampleCo"})
+
+    def test_merge_metadata(self):
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.merge_metadata = {
+            'alice@example.com': {'order_id': 123, 'tier': 'premium'},
+            'bob@example.com': {'order_id': 678},
+        }
+        self.message.metadata = {'notification_batch': 'zx912'}
+        self.message.send()
+
+        data = self.get_api_call_json()
+        messages = data['Messages']
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]['To'], 'alice@example.com')
+        # metadata and merge_metadata[recipient] are combined:
+        self.assertJSONEqual(messages[0]['Mj-EventPayLoad'],
+                             {'order_id': 123, 'tier': 'premium', 'notification_batch': 'zx912'})
+        self.assertEqual(messages[1]['To'], 'Bob <bob@example.com>')
+        self.assertJSONEqual(messages[1]['Mj-EventPayLoad'],
+                             {'order_id': 678, 'notification_batch': 'zx912'})
 
     def test_default_omits_options(self):
         """Make sure by default we don't send any ESP-specific options.

@@ -11,9 +11,11 @@ Anymail integrates with the `Mailjet`_ email service, using their transactional 
 
 .. note::
 
-    Mailjet is developing an improved `v3.1 Send API`_ (in public beta as of mid-2017).
-    Once the v3.1 API is released, Anymail will switch to it. This change should be
-    largely transparent to your code, unless you are using Anymail's
+    Mailjet has released a newer `v3.1 Send API`_, but due to mismatches between its
+    documentation and actual behavior, Anymail has been unable to switch to it.
+    Anymail's maintainers have reported the problems to Mailjet, and if and when they
+    are resolved, Anymail will switch to the v3.1 API. This change should be largely
+    transparent to your code, unless you are using Anymail's
     :ref:`esp_extra <mailjet-esp-extra>` feature to set API-specific options.
 
 
@@ -132,26 +134,26 @@ Limitations and quirks
   special approval from Mailjet support to use custom senders.
 
 **Commas in recipient names**
-  Mailjet's v3 API does not properly handle commas in recipient display-names
-  *if* your message also uses the ``cc`` or ``bcc`` fields.
+  Mailjet's v3 API does not properly handle commas in recipient display-names.
   (Tested July, 2017, and confirmed with Mailjet API support.)
 
   If your message would be affected, Anymail attempts to work around
   the problem by switching to `MIME encoded-word`_ syntax where needed.
 
   Most modern email clients should support this syntax, but if you run
-  into issues either avoid using ``cc`` and ``bcc``, or strip commas from all
+  into issues, you might want to strip commas from all
   recipient names (in ``to``, ``cc``, *and* ``bcc``) before sending.
+
+  (This should be resolved in a future release when
+  Anymail :ref:`switches <mailjet-v31-api>` to Mailjet's upcoming v3.1 API.)
 
 .. _MIME encoded-word: https://en.wikipedia.org/wiki/MIME#Encoded-Word
 
-**Merge data not compatible with cc/bcc**
-  Mailjet's v3 API is not capable of representing both ``cc`` or ``bcc`` fields
-  and :attr:`~anymail.message.AnymailMessage.merge_data` in the same message.
-  If you attempt to combine them, Anymail will raise an error at send time.
+.. versionchanged:: 6.0
 
-(The latter two limitations should be resolved in a future release when
-Anymail :ref:`switches <mailjet-v31-api>` to Mailjet's upcoming v3.1 API.)
+  Earlier versions of Anymail were unable to mix ``cc`` or ``bcc`` fields
+  and :attr:`~anymail.message.AnymailMessage.merge_data` in the same Mailjet message.
+  This limitation was removed in Anymail 6.0.
 
 
 .. _mailjet-templates:
