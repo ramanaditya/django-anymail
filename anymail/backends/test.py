@@ -22,6 +22,9 @@ class EmailBackend(AnymailBaseBackend):
     esp_name = "Test"
 
     def __init__(self, *args, **kwargs):
+        # Allow replacing the payload, for testing.
+        # (Real backends would generally not implement this option.)
+        self._payload_class = kwargs.pop('payload_class', TestPayload)
         super(EmailBackend, self).__init__(*args, **kwargs)
         if not hasattr(mail, 'outbox'):
             mail.outbox = []  # see django.core.mail.backends.locmem
@@ -32,7 +35,7 @@ class EmailBackend(AnymailBaseBackend):
         return mail.outbox.index(message)
 
     def build_message_payload(self, message, defaults):
-        return TestPayload(backend=self, message=message, defaults=defaults)
+        return self._payload_class(backend=self, message=message, defaults=defaults)
 
     def post_to_esp(self, payload, message):
         # Keep track of the sent messages and params (for test cases)

@@ -250,11 +250,16 @@ class BasePayload(object):
     )
     esp_message_attrs = ()  # subclasses can override
 
+    # If any of these attrs are set on a message, treat the message
+    # as a batch send (separate message for each `to` recipient):
+    batch_attrs = ('merge_data', 'merge_metadata')
+
     def __init__(self, message, defaults, backend):
         self.message = message
         self.defaults = defaults
         self.backend = backend
         self.esp_name = backend.esp_name
+        self._batch_attrs_used = {attr: UNSET for attr in self.batch_attrs}
 
         self.init_payload()
 
@@ -287,6 +292,20 @@ class BasePayload(object):
                     # AttributeError here? Your Payload subclass is missing a set_<attr> implementation
                     setter = getattr(self, 'set_%s' % attr)
                 setter(value)
+            if attr in self.batch_attrs:
+                self._batch_attrs_used[attr] = (value is not UNSET)
+
+    def is_batch(self):
+        """
+        Return True if the message should be treated as a batch send.
+
+        Intended to be used inside serialize_data or similar, after all relevant
+        attributes have been processed. Will error if called before that (e.g.,
+        inside a set_<attr> method or during __init__).
+        """
+        batch_attrs_used = self._batch_attrs_used.values()
+        assert UNSET not in batch_attrs_used, "Cannot call is_batch before all attributes processed"
+        return any(batch_attrs_used)
 
     def unsupported_feature(self, feature):
         if not self.backend.ignore_unsupported_features:
