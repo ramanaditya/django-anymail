@@ -130,6 +130,9 @@ class TestPayload(BasePayload):
     def set_merge_data(self, merge_data):
         self.params['merge_data'] = merge_data
 
+    def set_merge_metadata(self, merge_metadata):
+        self.params['merge_metadata'] = merge_metadata
+
     def set_merge_global_data(self, merge_global_data):
         self.params['merge_global_data'] = merge_global_data
 
