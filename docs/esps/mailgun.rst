@@ -179,6 +179,29 @@ Limitations and quirks
   obvious reasons, only the domain portion applies. You can use anything before
   the @, and it will be ignored.
 
+**Using merge_metadata with merge_data**
+  If you use both Anymail's :attr:`~anymail.message.AnymailMessage.merge_data`
+  and :attr:`~anymail.message.AnymailMessage.merge_metadata` features, make sure your
+  merge_data keys do not start with ``v:``. (It's a good idea anyway to avoid colons
+  and other special characters in merge_data keys, as this isn't generally portable
+  to other ESPs.)
+
+  The same underlying Mailgun feature ("recipient-variables") is used to implement
+  both Anymail features. To avoid conflicts, Anymail prepends ``v:`` to recipient
+  variables needed for merge_metadata. (This prefix is stripped as Mailgun prepares
+  the message to send, so it won't be present in your Mailgun API logs or the metadata
+  that is sent to tracking webhooks.)
+
+**merge_metadata values default to empty string**
+  If you use Anymail's :attr:`~anymail.message.AnymailMessage.merge_metadata` feature,
+  and you supply metadata keys for some recipients but not others, Anymail will first
+  try to resolve the missing keys in :attr:`~anymail.message.AnymailMessage.metadata`,
+  and if they are not found there will default them to an empty string value.
+
+  Your tracking webhooks will receive metadata values (either that you provided or the
+  default empty string) for *every* key used with *any* recipient in the send.
+
+
 .. _undocumented API requirement:
     https://mailgun.uservoice.com/forums/156243-feature-requests/suggestions/35668606
 

@@ -125,7 +125,8 @@ To use batch sending with Anymail (for ESPs that support it):
 
 .. caution::
 
-    It's critical to set the :attr:`~AnymailMessage.merge_data` attribute:
+    It's critical to set the :attr:`~AnymailMessage.merge_data`
+    (or :attr:`~AnymailMessage.merge_metadata`) attribute:
     this is how Anymail recognizes the message as a batch send.
 
     When you provide merge_data, Anymail will tell the ESP to send an individual customized

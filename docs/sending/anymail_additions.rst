@@ -115,6 +115,31 @@ ESP send options (AnymailMessage)
         as metadata. See :ref:`formatting-merge-data`.
 
 
+    .. attribute:: merge_metadata
+
+        Set this to a `dict` of *per-recipient* metadata values the ESP should store
+        with the message, for later search and retrieval. Each key in the dict is a
+        recipient email (address portion only), and its value is a dict of metadata
+        for that recipient:
+
+        .. code-block:: python
+
+            message.to = ["wile@example.com", "Mr. Runner <rr@example.com>"]
+            message.merge_metadata = {
+                "wile@example.com": {"customer": 123, "order": "acme-zxyw"},
+                "rr@example.com": {"customer": 45678, "order": "acme-wblt"},
+            }
+
+        When :attr:`!merge_metadata` is set, Anymail will use the ESP's
+        :ref:`batch sending <batch-send>` option, so that each `to` recipient gets an
+        individual message (and doesn't see the other emails on the `to` list).
+
+        All of the notes on :attr:`metadata` keys and value formatting also apply
+        to :attr:`!merge_metadata`. If there are conflicting keys, the
+        :attr:`!merge_metadata` values will take precedence over :attr:`!metadata`
+        for that recipient.
+
+
     .. attribute:: tags
 
         Set this to a `list` of `str` tags to apply to the message (usually
@@ -131,7 +156,8 @@ ESP send options (AnymailMessage)
 
     .. caution::
 
-        Some ESPs put :attr:`metadata` and :attr:`tags` in email headers,
+        Some ESPs put :attr:`metadata` (and a recipient's :attr:`merge_metadata`)
+        and :attr:`tags` in email headers,
         which are included with the email when it is delivered. Anything you
         put in them **could be exposed to the recipients,** so don't
         include sensitive data.

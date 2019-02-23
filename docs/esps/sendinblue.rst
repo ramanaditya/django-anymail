@@ -178,7 +178,8 @@ SendinBlue supports :ref:`ESP stored templates <esp-stored-templates>`
 populated with global merge data for all recipients, but does not
 offer :ref:`batch sending <batch-send>` with per-recipient merge data.
 Anymail's :attr:`~anymail.message.AnymailMessage.merge_data`
-message attribute is not supported with the SendinBlue backend.
+and :attr:`~anymail.message.AnymailMessage.merge_metadata`
+message attributes are not supported with the SendinBlue backend.
 
 To use a SendinBlue template, set the message's
 :attr:`~anymail.message.AnymailMessage.template_id` to the numeric

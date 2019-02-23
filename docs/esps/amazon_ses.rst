@@ -68,6 +68,11 @@ Limitations and quirks
   :attr:`~anymail.message.AnymailMessage.tags` feature. See :ref:`amazon-ses-tags`
   below for more information and additional options.
 
+**No merge_metadata**
+  Amazon SES's batch sending API does not support the custom headers Anymail uses
+  for metadata, so Anymail's :attr:`~anymail.message.AnymailMessage.merge_metadata`
+  feature is not available. (See :ref:`amazon-ses-tags` below for more information.)
+
 **Open and click tracking overrides**
   Anymail's :attr:`~anymail.message.AnymailMessage.track_opens` and
   :attr:`~anymail.message.AnymailMessage.track_clicks` are not supported.
@@ -164,7 +169,8 @@ For more complex use cases, set the SES `Tags` parameter directly in Anymail's
 :ref:`esp_extra <amazon-ses-esp-extra>`. See the example below. (Because custom headers do not
 work with SES's SendBulkTemplatedEmail call, esp_extra Tags is the only way to attach
 data to SES messages also using Anymail's :attr:`~anymail.message.AnymailMessage.template_id`
-and :attr:`~anymail.message.AnymailMessage.merge_data` features.)
+and :attr:`~anymail.message.AnymailMessage.merge_data` features, and the
+:attr:`~anymail.message.AnymailMessage.merge_metadata` cannot be supported.)
 
 
 .. _Introducing Sending Metrics:

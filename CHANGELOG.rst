@@ -39,6 +39,17 @@ Breaking changes
   code is doing something like `message.anymail_status.recipients[email.lower()]`,
   you should remove the `.lower()`
 
+Features
+~~~~~~~~
+
+* Add new `merge_metadata` option for providing per-recipient metadata in batch
+  sends. Available for all supported ESPs *except* Amazon SES and SendinBlue.
+  See `docs <https://anymail.readthedocs.io/en/latest/sending/anymail_additions/#anymail.message.AnymailMessage.merge_metadata>`_.
+  (Thanks `@janneThoft`_ for the idea and SendGrid implementation.)
+
+* **Mailjet:** Remove limitation on using `cc` or `bcc` together with `merge_data`.
+
+
 Fixes
 ~~~~~
 
@@ -908,6 +919,7 @@ Features
 .. _@calvin: https://github.com/calvin
 .. _@costela: https://github.com/costela
 .. _@decibyte: https://github.com/decibyte
+.. _@janneThoft: https://github.com/janneThoft
 .. _@joshkersey: https://github.com/joshkersey
 .. _@Lekensteyn: https://github.com/Lekensteyn
 .. _@lewistaylor: https://github.com/lewistaylor
