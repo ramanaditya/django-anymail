@@ -68,8 +68,10 @@ class MailgunPayload(RequestsPayload):
         self.all_recipients = []  # used for backend.parse_recipient_status
 
         # late-binding of recipient-variables:
-        self.merge_data = None
-        self.merge_global_data = None
+        self.merge_data = {}
+        self.merge_global_data = {}
+        self.metadata = {}
+        self.merge_metadata = {}
         self.to_emails = []
 
         super(MailgunPayload, self).__init__(message, defaults, backend, auth=auth, *args, **kwargs)
@@ -117,32 +119,51 @@ class MailgunPayload(RequestsPayload):
         return params
 
     def serialize_data(self):
-        self.populate_recipient_variables()
+        if self.is_batch() or self.merge_global_data:
+            self.populate_recipient_variables()
         return self.data
 
     def populate_recipient_variables(self):
-        """Populate Mailgun recipient-variables header from merge data"""
-        merge_data = self.merge_data
+        """Populate Mailgun recipient-variables from merge data and metadata"""
+        merge_metadata_keys = set()  # all keys used in any recipient's merge_metadata
+        for recipient_metadata in self.merge_metadata.values():
+            merge_metadata_keys.update(recipient_metadata.keys())
+        metadata_vars = {key: "v:%s" % key for key in merge_metadata_keys}  # custom-var for key
 
-        if self.merge_global_data is not None:
-            # Mailgun doesn't support global variables.
-            # We emulate them by populating recipient-variables for all recipients.
-            if merge_data is not None:
-                merge_data = merge_data.copy()  # don't modify the original, which doesn't belong to us
-            else:
-                merge_data = {}
-            for email in self.to_emails:
-                try:
-                    recipient_data = merge_data[email]
-                except KeyError:
-                    merge_data[email] = self.merge_global_data
-                else:
-                    # Merge globals (recipient_data wins in conflict)
-                    merge_data[email] = self.merge_global_data.copy()
-                    merge_data[email].update(recipient_data)
+        # Set up custom-var substitutions for merge metadata
+        # data['v:SomeMergeMetadataKey'] = '%recipient.v:SomeMergeMetadataKey%'
+        for var in metadata_vars.values():
+            self.data[var] = "%recipient.{var}%".format(var=var)
 
-        if merge_data is not None:
-            self.data['recipient-variables'] = self.serialize_json(merge_data)
+        # Any (toplevel) metadata that is also in (any) merge_metadata must be be moved
+        # into recipient-variables; and all merge_metadata vars must have defaults
+        # (else they'll get the '%recipient.v:SomeMergeMetadataKey%' literal string).
+        base_metadata = {metadata_vars[key]: self.metadata.get(key, '')
+                         for key in merge_metadata_keys}
+
+        recipient_vars = {}
+        for addr in self.to_emails:
+            # For each recipient, Mailgun recipient-variables[addr] is merger of:
+            # 1. metadata, for any keys that appear in merge_metadata
+            recipient_data = base_metadata.copy()
+
+            # 2. merge_metadata[addr], with keys prefixed with 'v:'
+            if addr in self.merge_metadata:
+                recipient_data.update({
+                    metadata_vars[key]: value for key, value in self.merge_metadata[addr].items()
+                })
+
+            # 3. merge_global_data (because Mailgun doesn't support global variables)
+            recipient_data.update(self.merge_global_data)
+
+            # 4. merge_data[addr]
+            if addr in self.merge_data:
+                recipient_data.update(self.merge_data[addr])
+
+            if recipient_data:
+                recipient_vars[addr] = recipient_data
+
+        self.data['recipient-variables'] = self.serialize_json(recipient_vars)
 
     #
     # Payload construction
@@ -210,6 +231,7 @@ class MailgunPayload(RequestsPayload):
         self.sender_domain = email.domain
 
     def set_metadata(self, metadata):
+        self.metadata = metadata  # save for handling merge_metadata later
         for key, value in metadata.items():
             self.data["v:%s" % key] = value
 
@@ -241,6 +263,10 @@ class MailgunPayload(RequestsPayload):
     def set_merge_global_data(self, merge_global_data):
         # Processed at serialization time (to allow merging global data)
         self.merge_global_data = merge_global_data
+
+    def set_merge_metadata(self, merge_metadata):
+        # Processed at serialization time (to allow combining with merge_data)
+        self.merge_metadata = merge_metadata
 
     def set_esp_extra(self, extra):
         self.data.update(extra)

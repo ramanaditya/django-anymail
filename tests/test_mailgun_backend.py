@@ -98,6 +98,7 @@ class MailgunBackendStandardEmailTests(MailgunBackendMockAPITestCase):
         self.assertEqual(data['h:Reply-To'], "another@example.com")
         self.assertEqual(data['h:X-MyHeader'], 'my value')
         self.assertEqual(data['h:Message-ID'], 'mycustommsgid@example.com')
+        self.assertNotIn('recipient-variables', data)  # multiple recipients, but not a batch send
 
     def test_html_message(self):
         text_content = 'This is an important message.'
@@ -387,6 +388,7 @@ class MailgunBackendAnymailFeatureTests(MailgunBackendMockAPITestCase):
         data = self.get_api_call_data()
         self.assertEqual(data['v:user_id'], '12345')
         self.assertEqual(data['v:items'], '["mail","gun"]')
+        self.assertNotIn('recipient-variables', data)  # shouldn't be needed for non-batch
 
     def test_send_at(self):
         utc_plus_6 = get_fixed_timezone(6 * 60)
@@ -483,6 +485,56 @@ class MailgunBackendAnymailFeatureTests(MailgunBackendMockAPITestCase):
             'alice@example.com': {'test': "value"},
             'bob@example.com': {'test': "value"},
         })
+
+    def test_merge_metadata(self):
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.merge_metadata = {
+            'alice@example.com': {'order_id': 123, 'tier': 'premium'},
+            'bob@example.com': {'order_id': 678},
+        }
+        self.message.metadata = {'tier': 'basic', 'notification_batch': 'zx912'}
+        self.message.send()
+
+        data = self.get_api_call_data()
+        # custom-data variables for merge_metadata refer to recipient-variables:
+        self.assertEqual(data['v:order_id'], '%recipient.v:order_id%')
+        self.assertEqual(data['v:tier'], '%recipient.v:tier%')
+        self.assertEqual(data['v:notification_batch'], 'zx912')  # metadata constant doesn't need var
+        # recipient-variables populates them:
+        self.assertJSONEqual(data['recipient-variables'], {
+            'alice@example.com': {'v:order_id': 123, 'v:tier': 'premium'},
+            'bob@example.com': {'v:order_id': 678, 'v:tier': 'basic'},  # tier merged from metadata default
+        })
+
+    def test_merge_data_with_merge_metadata(self):
+        # merge_data and merge_metadata both use recipient-variables
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.body = "Hi %recipient.name%. Welcome to %recipient.group% at %recipient.site%."
+        self.message.merge_data = {
+            'alice@example.com': {'name': "Alice", 'group': "Developers"},
+            'bob@example.com': {'name': "Bob"},  # and leave group undefined
+        }
+        self.message.merge_metadata = {
+            'alice@example.com': {'order_id': 123, 'tier': 'premium'},
+            'bob@example.com': {'order_id': 678},  # and leave tier undefined
+        }
+        self.message.send()
+
+        data = self.get_api_call_data()
+        self.assertJSONEqual(data['recipient-variables'], {
+            'alice@example.com': {'name': "Alice", 'group': "Developers",
+                                  'v:order_id': 123, 'v:tier': 'premium'},
+            'bob@example.com': {'name': "Bob",  # undefined merge_data --> omitted
+                                'v:order_id': 678, 'v:tier': ''},  # undefined metadata --> empty string
+        })
+
+    def test_force_batch(self):
+        # Mailgun uses presence of recipient-variables to indicate batch send
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.merge_data = {}
+        self.message.send()
+        data = self.get_api_call_data()
+        self.assertJSONEqual(data['recipient-variables'], {})
 
     def test_sender_domain(self):
         """Mailgun send domain can come from from_email, envelope_sender, or esp_extra"""
