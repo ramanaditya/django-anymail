@@ -217,6 +217,13 @@ Limitations and quirks
   the message to send, so it won't be present in your Mailgun API logs or the metadata
   that is sent to tracking webhooks.)
 
+**Additional limitations on merge_data with template_id**
+  If you are using Mailgun's stored handlebars templates (Anymail's
+  :attr:`~anymail.message.AnymailMessage.template_id`), :attr:`~anymail.message.AnymailMessage.merge_data`
+  cannot contain complex types or have any keys that conflict with
+  :attr:`~anymail.message.AnymailMessage.metadata`. See :ref:`mailgun-template-limitations`
+  below for more details.
+
 **merge_metadata values default to empty string**
   If you use Anymail's :attr:`~anymail.message.AnymailMessage.merge_metadata` feature,
   and you supply metadata keys for some recipients but not others, Anymail will first
@@ -233,20 +240,43 @@ Limitations and quirks
 
 .. _mailgun-templates:
 
-Batch sending/merge
+Batch sending/merge and ESP templates
 -------------------------------------
 
-Mailgun supports :ref:`batch sending <batch-send>` with per-recipient
-merge data. You can refer to Mailgun "recipient variables" in your
-message subject and body, and supply the values with Anymail's
-normalized :attr:`~anymail.message.AnymailMessage.merge_data`
-and :attr:`~anymail.message.AnymailMessage.merge_global_data`
-message attributes:
+Mailgun supports :ref:`ESP stored templates <esp-stored-templates>`, on-the-fly
+templating, and :ref:`batch sending <batch-send>` with per-recipient merge data.
+
+.. versionchanged:: 6.2
+
+  Added support for Mailgun's stored (handlebars) templates.
+
+Mailgun has two different syntaxes for substituting data into templates:
+
+* "Recipient variables" look like ``%recipient.name%``, and are used with on-the-fly
+  templates. You can refer to a recipient variable inside a message's body, subject,
+  or other message attributes defined in your Django code. See `Mailgun batch sending`_
+  for more information. (Note that Mailgun's docs also sometimes refer to recipient
+  variables as "template *variables*," and there are some additional predefined ones
+  described in their docs.)
+
+* "Template *substitutions*" look like ``{{ name }}``, and can *only* be used in
+  handlebars templates that are defined and stored in your Mailgun account (via
+  the Mailgun dashboard or API). You refer to a stored template using Anymail's
+  :attr:`~anymail.message.AnymailMessage.template_id` in your Django code.
+  See `Mailgun templates`_ for more information.
+
+With either type of template, you supply the substitution data using Anymail's
+normalized :attr:`~anymail.message.AnymailMessage.merge_data` and
+:attr:`~anymail.message.AnymailMessage.merge_global_data` message attributes. Anymail
+will figure out the correct Mailgun API parameters to use.
+
+Here's an example defining an on-the-fly template that uses Mailgun recipient variables:
 
   .. code-block:: python
 
       message = EmailMessage(
-          ...
+          from_email="shipping@example.com",
+          # Use %recipient.___% syntax in subject and body:
           subject="Your order %recipient.order_no% has shipped",
           body="""Hi %recipient.name%,
                   We shipped your order %recipient.order_no%
@@ -262,15 +292,97 @@ message attributes:
           'ship_date': "May 15"  # Anymail maps globals to all recipients
       }
 
-Mailgun does not natively support global merge data. Anymail emulates
-the capability by copying any `merge_global_data` values to each
-recipient's section in Mailgun's "recipient-variables" API parameter.
+And here's an example that uses the same data with a stored template, which could refer
+to ``{{ name }}``, ``{{ order_no }}``, and ``{{ ship_date }}`` in its definition:
 
-See the `Mailgun batch sending`_ docs for more information.
+  .. code-block:: python
+
+      message = EmailMessage(
+          from_email="shipping@example.com",
+          # The message body and html_body come from from the stored template.
+          # (You can still use %recipient.___% fields in the subject:)
+          subject="Your order %recipient.order_no% has shipped",
+          to=["alice@example.com", "Bob <bob@example.com>"]
+      )
+      message.template_id = 'shipping-notification'  # name of template in our account
+      # The substitution data is exactly the same as in the previous example:
+      message.merge_data = {
+          'alice@example.com': {'name': "Alice", 'order_no': "12345"},
+          'bob@example.com': {'name': "Bob", 'order_no': "54321"},
+      }
+      message.merge_global_data = {
+          'ship_date': "May 15"  # Anymail maps globals to all recipients
+      }
+
+When you supply per-recipient :attr:`~anymail.message.AnymailMessage.merge_data`,
+Anymail supplies Mailgun's ``recipient-variables`` parameter, which puts Mailgun
+in batch sending mode so that each "to" recipient sees only their own email address.
+(Any cc's or bcc's will be duplicated for *every* to-recipient.)
+
+If you want to use batch sending with a regular message (without a template), set
+merge data to an empty dict: `message.merge_data = {}`.
+
+Mailgun does not natively support global merge data. Anymail emulates
+the capability by copying any :attr:`~anymail.message.AnymailMessage.merge_global_data`
+values to every recipient.
+
+.. _mailgun-template-limitations:
+
+Limitations with stored handlebars templates
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Although Anymail tries to insulate you from Mailgun's relatively complicated API
+parameters for template substitutions in batch sends, there are two cases it can't
+handle. These *only* apply to stored handlebars templates (when you've set Anymail's
+:attr:`~anymail.message.AnymailMessage.template_id` attribute).
+
+First, metadata and template merge data substitutions use the same underlying
+"custom data" API parameters when a handlebars template is used. If you have any
+duplicate keys between your tracking metadata
+(:attr:`~anymail.message.AnymailMessage.metadata`/:attr:`~anymail.message.AnymailMessage.merge_metadata`)
+and your template merge data
+(:attr:`~anymail.message.AnymailMessage.merge_data`/:attr:`~anymail.message.AnymailMessage.merge_global_data`),
+Anymail will raise an :exc:`~anymail.exceptions.AnymailUnsupportedFeature` error.
+
+Second, Mailgun's API does not allow complex data types like lists or dicts to be
+passed as template substitutions for a batch send (confirmed with Mailgun support
+8/2019). Your Anymail :attr:`~anymail.message.AnymailMessage.merge_data` and
+:attr:`~anymail.message.AnymailMessage.merge_global_data` should only use simple
+types like string or number. This means you cannot use the handlebars ``{{#each item}}``
+block helper or dotted field notation like ``{{object.field}}`` with data passed
+through Anymail's normalized merge data attributes.
+
+Most ESPs do not support complex merge data types, so trying to do that is not recommended
+anyway, for portability reasons. But if you *do* want to pass complex types to Mailgun
+handlebars templates, and you're only sending to one recipient at a time, here's a
+(non-portable!) workaround:
+
+  .. code-block:: python
+
+      # Using complex substitutions with Mailgun handlebars templates.
+      # This works only for a single recipient, and is not at all portable between ESPs.
+      message = EmailMessage(
+          from_email="shipping@example.com",
+          to=["alice@example.com"]  # single recipient *only* (no batch send)
+          subject="Your order has shipped",  # recipient variables *not* available
+      )
+      message.template_id = 'shipping-notification'  # name of template in our account
+      substitutions = {
+          'items': [  # complex substitution data
+              {'product': "Anvil", 'quantity': 1},
+              {'product': "Tacks", 'quantity': 100},
+          ],
+          'ship_date': "May 15",
+      }
+      # Do *not* set Anymail's message.merge_data, merge_global_data, or merge_metadata.
+      # Instead add Mailgun custom variables directly:
+      message.extra_headers['X-Mailgun-Variables'] = json.dumps(substitutions)
+
 
 .. _Mailgun batch sending:
-    https://documentation.mailgun.com/user_manual.html#batch-sending
-
+    https://documentation.mailgun.com/en/latest/user_manual.html#batch-sending
+.. _Mailgun templates:
+    https://documentation.mailgun.com/en/latest/user_manual.html#templates
 
 .. _mailgun-webhooks:
 

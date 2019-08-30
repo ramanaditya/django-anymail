@@ -25,6 +25,19 @@ Release history
 ^^^^^^^^^^^^^^^
     ..  This extra heading level keeps the ToC from becoming unmanageably long
 
+vNext
+-----
+
+*Not yet released*
+
+Features
+~~~~~~~~
+
+* **Mailgun:** Support Mailgun's new (ESP stored) handlebars templates via `template_id`.
+  See `docs <https://anymail.readthedocs.io/en/latest/esps/mailgun/#batch-sending-merge-and-esp-templates>`__.
+  (Thanks `@anstosa`_.)
+
+
 v6.1
 ----
 
@@ -964,6 +977,7 @@ Features
 .. _#153: https://github.com/anymail/issues/153
 
 .. _@ailionx: https://github.com/ailionx
+.. _@anstosa: https://github.com/anstosa
 .. _@calvin: https://github.com/calvin
 .. _@costela: https://github.com/costela
 .. _@decibyte: https://github.com/decibyte

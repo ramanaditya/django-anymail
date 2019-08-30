@@ -490,7 +490,39 @@ class MailgunBackendAnymailFeatureTests(MailgunBackendMockAPITestCase):
             'bob@example.com': {'test': "value"},
         })
 
+    def test_merge_data_with_template(self):
+        # Mailgun *stored* (handlebars) templates get their variable substitutions
+        # from Mailgun's custom-data (not recipient-variables). To support batch sends
+        # with stored templates, Anymail sets up custom-data to pull values from
+        # recipient-variables. (Note this same Mailgun custom-data is also used for
+        # webhook metadata tracking.)
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.template_id = 'welcome_template'
+        self.message.merge_data = {
+            'alice@example.com': {'name': "Alice", 'group': "Developers"},
+            'bob@example.com': {'name': "Bob"},  # and leave group undefined
+        }
+        self.message.merge_global_data = {
+            'group': "Users",  # default
+            'site': "ExampleCo",
+        }
+        self.message.send()
+        data = self.get_api_call_data()
+        # custom-data variables for merge_data refer to recipient-variables:
+        self.assertEqual(data['v:name'], '%recipient.name%')
+        self.assertEqual(data['v:group'], '%recipient.group%')
+        self.assertEqual(data['v:site'], '%recipient.site%')
+        # recipient-variables populates them:
+        self.assertJSONEqual(data['recipient-variables'], {
+            'alice@example.com': {'name': "Alice", 'group': "Developers", 'site': "ExampleCo"},
+            'bob@example.com': {'name': "Bob", 'group': "Users", 'site': "ExampleCo"},
+        })
+
     def test_merge_metadata(self):
+        # Per-recipient custom-data uses the same recipient-variables mechanism
+        # as above, but prepends 'v:' to the recipient-data keys for metadata to
+        # keep them separate.
+        # (For on-the-fly templates -- not stored handlebars templates.)
         self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
         self.message.merge_metadata = {
             'alice@example.com': {'order_id': 123, 'tier': 'premium'},
@@ -528,9 +560,53 @@ class MailgunBackendAnymailFeatureTests(MailgunBackendMockAPITestCase):
         self.assertJSONEqual(data['recipient-variables'], {
             'alice@example.com': {'name': "Alice", 'group': "Developers",
                                   'v:order_id': 123, 'v:tier': 'premium'},
-            'bob@example.com': {'name': "Bob",  # undefined merge_data --> omitted
+            'bob@example.com': {'name': "Bob", 'group': '',  # undefined merge_data --> empty string
                                 'v:order_id': 678, 'v:tier': ''},  # undefined metadata --> empty string
         })
+
+    def test_merge_data_with_merge_metadata_and_template(self):
+        # This case gets tricky, because when a stored template is used, the per-recipient
+        # merge_metadata and merge_data both end up in the same Mailgun custom-data keys.
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.template_id = 'order_notification'
+        self.message.merge_data = {
+            'alice@example.com': {'name': "Alice", 'group': "Developers"},
+            'bob@example.com': {'name': "Bob"},  # and leave group undefined
+        }
+        self.message.merge_metadata = {
+            'alice@example.com': {'order_id': 123, 'tier': 'premium'},
+            'bob@example.com': {'order_id': 678},  # and leave tier undefined
+        }
+        self.message.send()
+
+        data = self.get_api_call_data()
+        # custom-data covers both merge_data and merge_metadata:
+        self.assertEqual(data['v:name'], '%recipient.name%')  # from merge_data
+        self.assertEqual(data['v:group'], '%recipient.group%')  # from merge_data
+        self.assertEqual(data['v:order_id'], '%recipient.v:order_id%')  # from merge_metadata
+        self.assertEqual(data['v:tier'], '%recipient.v:tier%')  # from merge_metadata
+        self.assertJSONEqual(data['recipient-variables'], {
+            'alice@example.com': {'name': "Alice", 'group': "Developers",
+                                  'v:order_id': 123, 'v:tier': 'premium'},
+            'bob@example.com': {'name': "Bob", 'group': '',  # undefined merge_data --> empty string
+                                'v:order_id': 678, 'v:tier': ''},  # undefined metadata --> empty string
+        })
+
+    def test_conflicting_merge_data_with_merge_metadata_and_template(self):
+        # When a stored template is used, the same Mailgun custom-data must hold both
+        # per-recipient merge_data and metadata, so there's potential for conflict.
+        self.message.to = ['alice@example.com', 'Bob <bob@example.com>']
+        self.message.template_id = 'order_notification'
+        self.message.merge_data = {
+            'alice@example.com': {'name': "Alice", 'group': "Developers"},
+            'bob@example.com': {'name': "Bob"},
+        }
+        self.message.metadata = {'group': "Order processing subsystem"}
+        with self.assertRaisesMessage(
+            AnymailUnsupportedFeature,
+            "conflicting merge_data and metadata keys ('group') when using template_id"
+        ):
+            self.message.send()
 
     def test_force_batch(self):
         # Mailgun uses presence of recipient-variables to indicate batch send

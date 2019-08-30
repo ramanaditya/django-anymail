@@ -161,6 +161,27 @@ class MailgunBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
         # (We could try fetching the message from event["storage"]["url"]
         # to verify content and other headers.)
 
+    def test_stored_template(self):
+        message = AnymailMessage(
+            template_id='test-template',  # name of a real template named in Anymail's Mailgun test account
+            subject='Your order %recipient.order%',  # Mailgun templates don't define subject
+            from_email='Test From <from@example.com>',  # Mailgun templates don't define sender
+            to=["test+to1@anymail.info"],
+            # metadata and merge_data must not have any conflicting keys when using template_id
+            metadata={"meta1": "simple string", "meta2": 2},
+            merge_data={
+                'test+to1@anymail.info': {
+                    'name': "Test Recipient",
+                }
+            },
+            merge_global_data={
+                'order': '12345',
+            },
+        )
+        message.send()
+        recipient_status = message.anymail_status.recipients
+        self.assertEqual(recipient_status['test+to1@anymail.info'].status, 'queued')
+
     # As of Anymail 0.10, this test is no longer possible, because
     # Anymail now raises AnymailInvalidAddress without even calling Mailgun
     # def test_invalid_from(self):

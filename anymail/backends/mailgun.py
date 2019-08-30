@@ -119,58 +119,122 @@ class MailgunPayload(RequestsPayload):
         return params
 
     def serialize_data(self):
-        if self.is_batch() or self.merge_global_data:
-            self.populate_recipient_variables()
+        self.populate_recipient_variables()
         return self.data
 
+    # A not-so-brief digression about Mailgun's batch sending, template personalization,
+    # and metadata tracking capabilities...
+    #
+    # Mailgun has two kinds of templates:
+    #   * ESP-stored templates (handlebars syntax), referenced by template name in the
+    #     send API, with substitution data supplied as "custom data" variables.
+    #     Anymail's `template_id` maps to this feature.
+    #   * On-the-fly templating (`%recipient.KEY%` syntax), with template variables
+    #     appearing directly in the message headers and/or body, and data supplied
+    #     as "recipient variables" per-recipient personalizations. Mailgun docs also
+    #     sometimes refer to this data as "template variables," but it's distinct from
+    #     the substitution data used for stored handelbars templates.
+    #
+    # Mailgun has two mechanisms for supplying additional data with a message:
+    #   * "Custom data" is supplied via `v:KEY` and/or `h:X-Mailgun-Variables` fields.
+    #     Custom data is passed to tracking webhooks (as 'user-variables') and is
+    #     available for `{{substitutions}}` in ESP-stored handlebars templates.
+    #     Normally, the same custom data is applied to every recipient of a message.
+    #   * "Recipient variables" are supplied via the `recipient-variables` field, and
+    #     provide per-recipient data for batch sending. The recipient specific values
+    #     are available as `%recipient.KEY%` virtually anywhere in the message
+    #     (including header fields and other parameters).
+    #
+    # Anymail needs both mechanisms to map its normalized metadata and template merge_data
+    # features to Mailgun:
+    # (1) Anymail's `metadata` maps directly to Mailgun's custom data, where it can be
+    #     accessed from webhooks.
+    # (2) Anymail's `merge_metadata` (per-recipient metadata for batch sends) maps
+    #     *indirectly* through recipient-variables to Mailgun's custom data. To avoid
+    #     conflicts, the recipient-variables mapping prepends 'v:' to merge_metadata keys.
+    #     (E.g., Mailgun's custom-data "user" is set to "%recipient.v:user", which picks
+    #     up its per-recipient value from Mailgun's `recipient-variables[to_email]["v:user"]`.)
+    # (3) Anymail's `merge_data` (per-recipient template substitutions) maps directly to
+    #     Mailgun's `recipient-variables`, where it can be referenced in on-the-fly templates.
+    # (4) Anymail's `merge_global_data` (global template substitutions) is copied to
+    #     Mailgun's `recipient-variables` for every recipient, as the default for missing
+    #     `merge_data` keys.
+    # (5) Only if a stored template is used, `merge_data` and `merge_global_data` are
+    #     *also* mapped *indirectly* through recipient-variables to Mailgun's custom data,
+    #     where they can be referenced in handlebars {{substitutions}}.
+    #     (E.g., Mailgun's custom-data "name" is set to "%recipient.name%", which picks
+    #     up its per-recipient value from Mailgun's `recipient-variables[to_email]["name"]`.)
+    #
+    # If Anymail's `merge_data`, `template_id` (stored templates) and `metadata` (or
+    # `merge_metadata`) are used together, there's a possibility of conflicting keys in
+    # Mailgun's custom data. Anymail treats that conflict as an unsupported feature error.
+
     def populate_recipient_variables(self):
-        """Populate Mailgun recipient-variables from merge data and metadata"""
-        merge_metadata_keys = set()  # all keys used in any recipient's merge_metadata
-        for recipient_metadata in self.merge_metadata.values():
-            merge_metadata_keys.update(recipient_metadata.keys())
-        metadata_vars = {key: "v:%s" % key for key in merge_metadata_keys}  # custom-var for key
+        """Populate Mailgun recipient-variables and custom data from merge data and metadata"""
+        # (numbers refer to detailed explanation above)
+        # Mailgun parameters to construct:
+        recipient_variables = {}
+        custom_data = {}
 
-        # Set up custom-var substitutions for merge metadata
-        # data['v:SomeMergeMetadataKey'] = '%recipient.v:SomeMergeMetadataKey%'
-        for var in metadata_vars.values():
-            self.data[var] = "%recipient.{var}%".format(var=var)
+        # (1) metadata --> Mailgun custom_data
+        custom_data.update(self.metadata)
 
-        # Any (toplevel) metadata that is also in (any) merge_metadata must be be moved
-        # into recipient-variables; and all merge_metadata vars must have defaults
-        # (else they'll get the '%recipient.v:SomeMergeMetadataKey%' literal string).
-        base_metadata = {metadata_vars[key]: self.metadata.get(key, '')
-                         for key in merge_metadata_keys}
+        # (2) merge_metadata --> Mailgun custom_data via recipient_variables
+        if self.merge_metadata:
+            def vkey(key):  # 'v:key'
+                return 'v:{}'.format(key)
 
-        recipient_vars = {}
-        for addr in self.to_emails:
-            # For each recipient, Mailgun recipient-variables[addr] is merger of:
-            # 1. metadata, for any keys that appear in merge_metadata
-            recipient_data = base_metadata.copy()
+            merge_metadata_keys = flatset(  # all keys used in any recipient's merge_metadata
+                recipient_data.keys() for recipient_data in self.merge_metadata.values())
+            custom_data.update({  # custom_data['key'] = '%recipient.v:key%' indirection
+                key: '%recipient.{}%'.format(vkey(key))
+                for key in merge_metadata_keys})
+            base_recipient_data = {  # defaults for each recipient must cover all keys
+                vkey(key): self.metadata.get(key, '')
+                for key in merge_metadata_keys}
+            for email in self.to_emails:
+                this_recipient_data = base_recipient_data.copy()
+                this_recipient_data.update({
+                    vkey(key): value
+                    for key, value in self.merge_metadata.get(email, {}).items()})
+                recipient_variables.setdefault(email, {}).update(this_recipient_data)
 
-            # 2. merge_metadata[addr], with keys prefixed with 'v:'
-            if addr in self.merge_metadata:
-                recipient_data.update({
-                    metadata_vars[key]: value for key, value in self.merge_metadata[addr].items()
-                })
+        # (3) and (4) merge_data, merge_global_data --> Mailgun recipient_variables
+        if self.merge_data or self.merge_global_data:
+            merge_data_keys = flatset(  # all keys used in any recipient's merge_data
+                recipient_data.keys() for recipient_data in self.merge_data.values())
+            merge_data_keys = merge_data_keys.union(self.merge_global_data.keys())
+            base_recipient_data = {  # defaults for each recipient must cover all keys
+                key: self.merge_global_data.get(key, '')
+                for key in merge_data_keys}
+            for email in self.to_emails:
+                this_recipient_data = base_recipient_data.copy()
+                this_recipient_data.update(self.merge_data.get(email, {}))
+                recipient_variables.setdefault(email, {}).update(this_recipient_data)
 
-            # 3. merge_global_data (because Mailgun doesn't support global variables)
-            recipient_data.update(self.merge_global_data)
+            # (5) if template, also map Mailgun custom_data to per-recipient_variables
+            if self.data.get('template') is not None:
+                conflicts = merge_data_keys.intersection(custom_data.keys())
+                if conflicts:
+                    self.unsupported_feature(
+                        "conflicting merge_data and metadata keys (%s) when using template_id"
+                        % ', '.join("'%s'" % key for key in conflicts))
+                custom_data.update({  # custom_data['key'] = '%recipient.key%' indirection
+                    key: '%recipient.{}%'.format(key)
+                    for key in merge_data_keys})
 
-            # 4. merge_data[addr]
-            if addr in self.merge_data:
-                recipient_data.update(self.merge_data[addr])
-
-            if recipient_data:
-                recipient_vars[addr] = recipient_data
-
-        self.data['recipient-variables'] = self.serialize_json(recipient_vars)
+        # populate Mailgun params
+        self.data.update({'v:%s' % key: value
+                          for key, value in custom_data.items()})
+        if recipient_variables or self.is_batch():
+            self.data['recipient-variables'] = self.serialize_json(recipient_variables)
 
     #
     # Payload construction
     #
 
     def init_payload(self):
-        self.data = {}   # {field: [multiple, values]}
+        self.data = {}  # {field: [multiple, values]}
         self.files = []  # [(field, multiple), (field, values)]
         self.headers = {}
 
@@ -285,3 +349,12 @@ def isascii(s):
     except UnicodeEncodeError:
         return False
     return True
+
+
+def flatset(iterables):
+    """Return a set of the items in a single-level flattening of iterables
+
+    >>> flatset([1, 2], [2, 3])
+    set(1, 2, 3)
+    """
+    return set(item for iterable in iterables for item in iterable)
