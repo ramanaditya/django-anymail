@@ -11,6 +11,21 @@ from ..utils import get_anymail_setting, rfc2822date
 from .base_requests import AnymailRequestsBackend, RequestsPayload
 
 
+# Feature-detect whether requests (urllib3) correctly uses RFC 7578 encoding for non-
+# ASCII filenames in Content-Disposition headers. (This was fixed in urllib3 v1.25.)
+# See MailgunPayload.get_request_params for info (and a workaround on older versions).
+# (Note: when this workaround is removed, please also remove the "old_urllib3" tox envs.)
+def is_requests_rfc_5758_compliant():
+    request = Request(method='POST', url='https://www.example.com',
+                      files=[('attachment', (u'\N{NOT SIGN}.txt', 'test', 'text/plain'))])
+    prepared = request.prepare()
+    form_data = prepared.body  # bytes
+    return b'filename*=' not in form_data
+
+
+REQUESTS_IS_RFC_7578_COMPLIANT = is_requests_rfc_5758_compliant()
+
+
 class EmailBackend(AnymailRequestsBackend):
     """
     Mailgun API Email Backend
@@ -94,7 +109,7 @@ class MailgunPayload(RequestsPayload):
         non_ascii_filenames = [filename
                                for (field, (filename, content, mimetype)) in params["files"]
                                if filename is not None and not isascii(filename)]
-        if non_ascii_filenames:
+        if non_ascii_filenames and not REQUESTS_IS_RFC_7578_COMPLIANT:
             # Workaround https://github.com/requests/requests/issues/4652:
             # Mailgun expects RFC 7578 compliant multipart/form-data, and is confused
             # by Requests/urllib3's improper use of RFC 2231 encoded filename parameters

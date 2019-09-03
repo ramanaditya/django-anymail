@@ -182,12 +182,20 @@ class MailgunBackendStandardEmailTests(MailgunBackendMockAPITestCase):
         self.message.send()
 
         # Verify the RFC 7578 compliance workaround has kicked in:
-        data = self.get_api_call_data().decode("utf-8")
+        data = self.get_api_call_data()
+        if isinstance(data, dict):  # workaround not needed or used (but let's double check actual request)
+            workaround = False
+            prepared = self.get_api_prepared_request()
+            data = prepared.body
+        else:
+            workaround = True
+        data = data.decode("utf-8").replace("\r\n", "\n")
         self.assertNotIn("filename*=", data)  # No RFC 2231 encoding
         self.assertIn(u'Content-Disposition: form-data; name="attachment"; filename="Une pièce jointe.html"', data)
 
-        files = self.get_api_call_files(required=False)
-        self.assertFalse(files)  # files should have been moved to formdata body
+        if workaround:
+            files = self.get_api_call_files(required=False)
+            self.assertFalse(files)  # files should have been moved to formdata body
 
     def test_rfc_7578_compliance(self):
         # Check some corner cases in the workaround that undoes RFC 2231 multipart/form-data encoding...
@@ -214,7 +222,12 @@ class MailgunBackendStandardEmailTests(MailgunBackendMockAPITestCase):
         self.message.attach(u"besked med vedhæftede filer", forwarded_message, "message/rfc822")
         self.message.send()
 
-        data = self.get_api_call_data().decode("utf-8").replace("\r\n", "\n")
+        data = self.get_api_call_data()
+        if isinstance(data, dict):  # workaround not needed or used (but let's double check actual request)
+            prepared = self.get_api_prepared_request()
+            data = prepared.body
+        data = data.decode("utf-8").replace("\r\n", "\n")
+
         # Top-level attachment (in form-data) should have RFC 7578 filename (raw Unicode):
         self.assertIn(
             u'Content-Disposition: form-data; name="attachment"; filename="besked med vedhæftede filer"', data)

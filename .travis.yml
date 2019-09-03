@@ -52,6 +52,9 @@ matrix:
     - { env: TOXENV=django22-py37-none, python: 3.7 }
     - { env: TOXENV=django22-py37-amazon_ses, python: 3.7 }
     - { env: TOXENV=django22-py37-sparkpost, python: 3.7 }
+    # Test some specific older package versions
+    - { env: TOXENV=django111-py27-all-old_urllib3, python: 3.7 }
+    - { env: TOXENV=django22-py37-all-old_urllib3, python: 3.7 }
 
   allow_failures:
     - env: TOXENV=djangoMaster-py37-all

@@ -38,6 +38,14 @@ Features
   (Thanks `@anstosa`_.)
 
 
+Other
+~~~~~
+
+* **Mailgun:** Disable Anymail's workaround for a Requests/urllib3 issue with non-ASCII
+  attachment filenames when a newer version of urllib3--which fixes the problem--is
+  installed. (Workaround was added in Anymail v4.3; fix appears in urllib3 v1.25.)
+
+
 v6.1
 ----
 

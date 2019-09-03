@@ -115,6 +115,13 @@ class RequestsBackendMockAPITestCase(SimpleTestCase, AnymailTestMixin):
         """Returns the auth sent to the mock ESP API"""
         return self.get_api_call_arg('auth', required)
 
+    def get_api_prepared_request(self):
+        """Returns the PreparedRequest that would have been sent"""
+        (args, kwargs) = self.mock_request.call_args
+        kwargs.pop('timeout', None)  # Session-only param
+        request = requests.Request(**kwargs)
+        return request.prepare()
+
     def assert_esp_not_called(self, msg=None):
         if self.mock_request.called:
             raise AssertionError(msg or "ESP API was called and shouldn't have been")
