@@ -21,8 +21,9 @@ class SendinBlueWebhookSecurityTestCase(WebhookTestCase, WebhookBasicAuthTestsMi
 
 @tag('sendinblue')
 class SendinBlueDeliveryTestCase(WebhookTestCase):
-    # SendinBlue's webhook payload data doesn't seem to be documented anywhere.
-    # There's a list of webhook events at https://apidocs.sendinblue.com/webhooks/#3.
+    # SendinBlue's webhook payload data is partially documented at
+    # https://help.sendinblue.com/hc/en-us/articles/360007666479,
+    # but it's not completely up to date.
     # The payloads below were obtained through live testing.
 
     def test_sent_event(self):
@@ -40,7 +41,13 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
             "ts_epoch": 1520363423000,  # 2018-03-06 19:10:23.000+00:00 -- UTC (milliseconds)
 
             "X-Mailin-custom": '{"meta": "data"}',
-            "tag": "test-tag",  # note: for template send, is template name if no other tag provided
+            # "tag" is JSON-serialized tags array if `tags` param set on send,
+            #   else single tag string if `X-Mailin-Tag` header set on send,
+            #   else template name if sent using a template,
+            #   else not present.
+            # "tags" is tags list if `tags` param set on send, else not present.
+            "tag": '["tag1","tag2"]',
+            "tags": ["tag1", "tag2"],
             "template_id": 12,
             "sending_ip": "333.33.33.33",
         }
@@ -58,7 +65,7 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
         self.assertIsNone(event.event_id)  # SendinBlue does not provide a unique event id
         self.assertEqual(event.recipient, "recipient@example.com")
         self.assertEqual(event.metadata, {"meta": "data"})
-        self.assertEqual(event.tags, ["test-tag"])
+        self.assertEqual(event.tags, ["tag1", "tag2"])
 
     def test_delivered_event(self):
         raw_event = {
@@ -91,6 +98,7 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
             "message-id": "<201803011158.9876543210@smtp-relay.mailin.fr>",
             # the leading space in the reason is as received in actual testing:
             "reason": " RecipientError: 550 5.5.0 Requested action not taken: mailbox unavailable.",
+            "tag": "header-tag",
         }
         response = self.client.post('/anymail/sendinblue/tracking/',
                                     content_type='application/json', data=json.dumps(raw_event))
@@ -102,6 +110,7 @@ class SendinBlueDeliveryTestCase(WebhookTestCase):
         self.assertEqual(event.reject_reason, "bounced")
         self.assertEqual(event.mta_response,
                          " RecipientError: 550 5.5.0 Requested action not taken: mailbox unavailable.")
+        self.assertEqual(event.tags, ["header-tag"])
 
     def test_soft_bounce_event(self):
         raw_event = {

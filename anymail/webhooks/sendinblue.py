@@ -49,10 +49,17 @@ class SendinBlueTrackingWebhookView(AnymailBaseWebhookView):
         except (KeyError, ValueError):
             timestamp = None
 
+        tags = []
         try:
-            tags = [esp_event["tag"]]
+            # If `tags` param set on send, webhook payload includes 'tags' array field.
+            tags = esp_event['tags']
         except KeyError:
-            tags = []
+            try:
+                # If `X-Mailin-Tag` header set on send, webhook payload includes single 'tag' string.
+                # (If header not set, webhook 'tag' will be the template name for template sends.)
+                tags = [esp_event['tag']]
+            except KeyError:
+                pass
 
         try:
             metadata = json.loads(esp_event["X-Mailin-custom"])
