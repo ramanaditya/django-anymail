@@ -344,19 +344,6 @@ class SendinBlueBackendAnymailFeatureTests(SendinBlueBackendMockAPITestCase):
         self.assertEqual(data['subject'], 'My Subject')
         self.assertEqual(data['to'], [{'email': "to@example.com", 'name': 'Recipient'}])
 
-    def test_unsupported_template_overrides(self):
-        # SendinBlue doesn't allow overriding any template headers/content
-        message = mail.EmailMessage(to=['to@example.com'])
-        message.template_id = "9"
-
-        message.body = "nope, can't change text body"
-        with self.assertRaisesMessage(AnymailUnsupportedFeature, "overriding template body content"):
-            message.send()
-        message.content_subtype = "html"
-        with self.assertRaisesMessage(AnymailUnsupportedFeature, "overriding template body content"):
-            message.send()
-        message.body = None
-
     def test_merge_data(self):
         self.message.merge_data = {
             'alice@example.com': {':name': "Alice", ':group': "Developers"},

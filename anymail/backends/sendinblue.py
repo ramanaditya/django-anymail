@@ -83,12 +83,8 @@ class SendinBluePayload(RequestsPayload):
 
     def serialize_data(self):
         """Performs any necessary serialization on self.data, and returns the result."""
-
         if not self.data['headers']:
             del self.data['headers']  # don't send empty headers
-        if self.data.get('templateId') and (self.data.pop('textContent', False) or self.data.pop('htmlContent', False)):
-            self.unsupported_feature("overriding template body content")
-
         return self.serialize_json(self.data)
 
     #
