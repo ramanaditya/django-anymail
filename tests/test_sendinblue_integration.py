@@ -63,7 +63,7 @@ class SendinBlueBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
             headers={"X-Anymail-Test": "value", "X-Anymail-Count": 3},
 
             metadata={"meta1": "simple string", "meta2": 2},
-            tags=["tag 1"],  # SendinBlue only supports single tags
+            tags=["tag 1", "tag 2"],
         )
         message.attach_alternative('<p>HTML content</p>', "text/html")  # SendinBlue requires an HTML body
 
@@ -76,22 +76,32 @@ class SendinBlueBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
 
     def test_template(self):
         message = AnymailMessage(
-            template_id=1,  # There is a template with this id in the Anymail test account
-            to=["test+to1@anymail.info"],  # SendinBlue doesn't allow recipient display names with templates
-            reply_to=["reply@example.com"],
+            template_id=5,  # There is a *new-style* template with this id in the Anymail test account
+            from_email='Sender <from@test-sb.anymail.info>',  # Override template sender
+            to=["Recipient <test+to1@anymail.info>"],  # No batch send (so max one recipient suggested)
+            reply_to=["Do not reply <reply@example.com>"],
             tags=["using-template"],
             headers={"X-Anymail-Test": "group: A, variation: C"},
             merge_global_data={
-                # The Anymail test template includes `%SHIP_DATE%` and `%ORDER_ID%` variables
+                # The Anymail test template includes `{{ params.SHIP_DATE }}`
+                # and `{{ params.ORDER_ID }}` substitutions
                 "SHIP_DATE": "yesterday",
                 "ORDER_ID": "12345",
             },
             metadata={"customer-id": "ZXK9123", "meta2": 2},
         )
-        message.from_email = None  # Required for SendinBlue templates
 
-        # Attachments don't work with templates in Sendinblue's newer API:
-        # message.attach("attachment1.txt", "Here is some\ntext for you", "text/plain")
+        # Normal attachments don't work with Sendinblue templates:
+        #   message.attach("attachment1.txt", "Here is some\ntext for you", "text/plain")
+        # If you can host the attachment content on some publicly-accessible URL,
+        # this *non-portable* alternative allows sending attachments with templates:
+        message.esp_extra = {
+            'attachment': [{
+                'name': 'attachment1.txt',
+                # URL where Sendinblue can download the attachment content while sending:
+                'url': 'https://raw.githubusercontent.com/anymail/django-anymail/master/AUTHORS.txt',
+            }]
+        }
 
         message.send()
         self.assertEqual(message.anymail_status.status, {'queued'})  # SendinBlue always queues
