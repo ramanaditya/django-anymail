@@ -30,12 +30,32 @@ vNext
 
 *Not yet released*
 
+Breaking changes
+~~~~~~~~~~~~~~~~
+
+* **SendinBlue templates:** Support Sendinblue's new (ESP stored) Django templates and
+  new API for template sending. This removes most of the odd limitations in the older
+  (now-deprecated) SendinBlue template send API, but involves two breaking changes:
+
+  * You *must* `convert <https://help.sendinblue.com/hc/en-us/articles/360000991960>`_
+    each old Sendinblue template to the new language as you upgrade to Anymail vNext, or
+    certain features may be silently ignored on template sends (notably `reply_to` and
+    recipient display names).
+
+  * Sendinblue's API no longer supports sending attachments when using templates.
+
+  Ordinary, non-template sending is not affected by these changes. See
+  `docs <https://anymail.readthedocs.io/en/latest/esps/sendinblue/#batch-sending-merge-and-esp-templates>`_
+  for more info and alternatives. (Thanks `@Thorbenl`_.)
+
 Features
 ~~~~~~~~
 
 * **Mailgun:** Support Mailgun's new (ESP stored) handlebars templates via `template_id`.
   See `docs <https://anymail.readthedocs.io/en/latest/esps/mailgun/#batch-sending-merge-and-esp-templates>`__.
   (Thanks `@anstosa`_.)
+
+* **SendinBlue:** Support multiple `tags`. (Thanks `@Thorbenl`_.)
 
 
 Other
@@ -999,5 +1019,6 @@ Features
 .. _@mbk-ok: https://github.com/mbk-ok
 .. _@RignonNoel: https://github.com/RignonNoel
 .. _@sebbacon: https://github.com/sebbacon
+.. _@Thorbenl: https://github.com/Thorbenl
 .. _@varche1: https://github.com/varche1
 .. _@yourcelf: https://github.com/yourcelf

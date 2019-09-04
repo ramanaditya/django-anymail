@@ -108,7 +108,7 @@ SendinBlue can handle.
 **HTML body required**
   SendinBlue's API returns an error if you attempt to send a message with
   only a plain-text body. Be sure to :ref:`include HTML <sending-html>`
-  content for your messages.
+  content for your messages if you are not using a template.
 
   (SendinBlue *does* allow HTML without a plain-text body. This is generally
   not recommended, though, as some email systems treat HTML-only content as a
@@ -130,10 +130,12 @@ SendinBlue can handle.
   Anymail has no way to communicate an attachment's desired content-type
   to the SendinBlue API if the name is not set correctly.
 
-**Additional template limitations**
-  If you are sending using a SendinBlue template, their API doesn't support overriding the template's
-  body. See the :ref:`templates <sendinblue-templates>`
-  section below.
+**No attachments with templates**
+  If you are sending using a SendinBlue template, their API doesn't support ordinary
+  file attachments. Attempting to send an attachment with a template will result in the
+  SendinBlue API error message, "Please don't pass attachment content & templateId in same
+  request, instead use attachment url only."
+  See the :ref:`templates <sendinblue-templates>` section below.
 
 **Single Reply-To**
   SendinBlue's v3 API only supports a single Reply-To address.
@@ -164,29 +166,48 @@ SendinBlue can handle.
 Batch sending/merge and ESP templates
 -------------------------------------
 
-SendinBlue supports :ref:`ESP stored templates <esp-stored-templates>`
-populated with global merge data for all recipients, but does not
-offer :ref:`batch sending <batch-send>` with per-recipient merge data.
-Anymail's :attr:`~anymail.message.AnymailMessage.merge_data`
-and :attr:`~anymail.message.AnymailMessage.merge_metadata`
-message attributes are not supported with the SendinBlue backend.
+SendinBlue supports :ref:`ESP stored templates <esp-stored-templates>` populated with
+global merge data for all recipients, but does not offer :ref:`batch sending <batch-send>`
+with per-recipient merge data. Anymail's :attr:`~anymail.message.AnymailMessage.merge_data`
+and :attr:`~anymail.message.AnymailMessage.merge_metadata` message attributes are not
+supported with the SendinBlue backend, but you can use Anymail's
+:attr:`~anymail.message.AnymailMessage.merge_global_data` with SendinBlue templates.
+
+SendinBlue supports two different template styles: a `new template language`_
+that uses Django template syntax (with ``{{ param.NAME }}`` style substitutions),
+and an "old" template language that used percent-delimited ``%NAME%`` style
+substitutions. Anymail v7.0 and later require new style templates.
+
+.. versionchanged:: 7.0
+
+    Anymail switched to a SendinBlue API that supports the new template language
+    and removes several limitations from the earlier template send API. But the new API
+    does not support attachments, and can behave oddly if used with old style templates.
+
+.. caution::
+
+    Anymail v7.0 and later work *only* with Sendinblue's *new* template language. You should
+    follow SendinBlue's instructions to `convert each old template`_ to the new language.
+
+    Although unconverted old templates may appear to work with Anymail v7.0, some
+    features may not work properly. In particular, ``reply_to`` overrides and recipient
+    display names are silently ignored when *old* style templates are sent with the
+    *new* API used in Anymail v7.0.
 
 To use a SendinBlue template, set the message's
 :attr:`~anymail.message.AnymailMessage.template_id` to the numeric
 SendinBlue template ID, and supply substitution attributes using
-the messages's :attr:`~anymail.message.AnymailMessage.merge_global_data`:
+the message's :attr:`~anymail.message.AnymailMessage.merge_global_data`:
 
   .. code-block:: python
 
       message = EmailMessage(
-          subject="My Subject",  # optional for SendinBlue templates
-          body=None,  # required for SendinBlue templates
           to=["alice@example.com"]  # single recipient...
           # ...multiple to emails would all get the same message
           # (and would all see each other's emails in the "to" header)
       )
-      message.from_email = None  # required for SendinBlue templates
-      message.template_id = 3  # use this SendinBlue template
+      message.template_id = 3   # use this SendinBlue template
+      message.from_email = None  # to use the template's default sender
       message.merge_global_data = {
           'name': "Alice",
           'order_no': "12345",
@@ -194,13 +215,36 @@ the messages's :attr:`~anymail.message.AnymailMessage.merge_global_data`:
       }
 
 Within your SendinBlue template body and subject, you can refer to merge
-variables using %-delimited names, e.g., `%order_no%` or `%ship_date%`
-from the example above.
+variables using Django template syntax, like ``{{ params.order_no }}`` or
+``{{ params.ship_date }}`` for the example above.
 
-Note that SendinBlue's API does not permit overriding a template's
-body. You *must* set it to `None` as shown above,
-or Anymail will raise an :exc:`~anymail.exceptions.AnymailUnsupportedFeature`
-error (if you are not ignoring unsupported features).
+The message's :class:`from_email <django.core.mail.EmailMessage>` (which defaults to
+your :setting:`DEFAULT_FROM_EMAIL` setting) will override the template's default sender.
+If you want to use the template's sender, be sure to set ``from_email`` to ``None``
+*after* creating the message, as shown in the example above.
+
+You can also override the template's subject and reply-to address (but not body)
+using standard :class:`~django.core.mail.EmailMessage` attributes.
+
+SendinBlue's template feature does not currently support providing attachment content
+directly with the message---you'll get a SendinBlue API error if you try. If you must
+send file attachments with SendinBlue templates, you can either upload them into
+SendinBlue's template designer, or arrange to have the attachment content hosted on
+a public URL and use Anymail's :attr:`~anymail.message.AnymailMessage.esp_extra`
+to pass the URL to the SendinBlue API (see the Anymail SendinBlue integration tests
+for an example of this). A better---and portable---option may be to avoid SendinBlue
+templates and instead render the email in your Django code, allowing you to add any
+file attachments you want. See :ref:`django-templates` for details.
+
+(Note that SendinBlue doesn't support *inline* image attachments at all, whether you're
+using a template or not.)
+
+
+.. _new template language:
+    https://help.sendinblue.com/hc/en-us/articles/360000268730
+
+.. _convert each old template:
+    https://help.sendinblue.com/hc/en-us/articles/360000991960
 
 
 .. _sendinblue-webhooks:
