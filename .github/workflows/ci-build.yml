@@ -1,0 +1,89 @@
+name: build
+
+on:
+  push:
+    # TODO: filter branches?
+  schedule:
+    # Weekly build every Thursday at 12:00 UTC
+    - cron: '0 12 * * 4'
+
+
+jobs:
+  build:
+    name: Python ${{ matrix.python-version }} TOXENV=${{ matrix.env.TOXENV }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        config:
+          - { tox: "lint,docs", python: 3.6 }
+
+          # Anymail supports the same Python versions as Django, plus PyPy.
+          # https://docs.djangoproject.com/en/dev/faq/install/#what-python-version-can-i-use-with-django
+
+          # Live API integration tests are only run on a few, representative Python/Django version
+          # combinations, to avoid rapidly consuming the testing accounts' entire send allotments.
+
+          # Django 1.11: Python 2.7, 3.4, 3.5, or 3.6
+          - { tox: django111-py27-all, python: 2.7, live_integration: true }
+          - { tox: django111-py34-all, python: 3.4 }
+          - { tox: django111-py35-all, python: 3.5 }
+          - { tox: django111-py36-all, python: 3.6 }
+          - { tox: django111-pypy-all, python: pypy2.7 }
+          # TODO: enable all builds
+          # # Django 2.0: Python 3.5+
+          # - { tox: django20-py35-all, python: 3.5 }
+          # - { tox: django20-py36-all, python: 3.6 }
+          # - { tox: django20-pypy3-all, python: pypy3.5 }
+          # # Django 2.1: Python 3.5, 3.6, or 3.7
+          # - { tox: django21-py35-all, python: 3.5 }
+          # - { tox: django21-py36-all, python: 3.6 }
+          # - { tox: django21-py37-all, python: 3.7 }
+          # - { tox: django21-pypy3-all, python: pypy3.5 }
+          # # Django 2.2: Python 3.5, 3.6, or 3.7
+          # - { tox: django22-py35-all, python: 3.5 }
+          # - { tox: django22-py36-all, python: 3.6 }
+          # - { tox: django22-py37-all, python: 3.7, live_integration: true }
+          # - { tox: django22-pypy3-all, python: pypy3.5 }
+          # # Django 3.0: Python 3.6, 3.7, or 3.8
+          # - { tox: django30-py36-all, python: 3.6 }
+          # - { tox: django30-py37-all, python: 3.7 }
+          # - { tox: django30-py38-all, python: 3.8 }
+          # - { tox: django30-pypy3-all, python: pypy3.6 }
+          # # Django development master (direct from GitHub source):
+          # - { tox: djangoMaster-py37-all, python: 3.7, allow_failures: true }
+          # # Install without optional extras (don't need to cover entire matrix)
+          # - { tox: django22-py37-none, python: 3.7 }
+          # - { tox: django22-py37-amazon_ses, python: 3.7 }
+          # - { tox: django22-py37-sparkpost, python: 3.7 }
+          # # Test some specific older package versions
+          # - { tox: django111-py27-all-old_urllib3, python: 2.7 }
+          # - { tox: django22-py37-all-old_urllib3, python: 3.7 }
+
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/setup-python@v1
+        with:
+          python-version: ${{ matrix.config.python }}
+      - run: pip install tox
+      - run: tox -e ${{ matrix.config.tox }}
+        continue-on-error: ${{ matrix.config.allow_failures }}
+        env:
+          CONTINUOUS_INTEGRATION: true
+          RUN_LIVE_TESTS: ${{ matrix.config.live_integration }}
+          # TODO: secrets
+          # AMAZON_SES_TEST_ACCESS_KEY_ID: ${{ secrets.AMAZON_SES_TEST_ACCESS_KEY_ID || '' }}
+          # AMAZON_SES_TEST_REGION_NAME: ${{ secrets.AMAZON_SES_TEST_REGION_NAME }}
+          # AMAZON_SES_TEST_SECRET_ACCESS_KEY: ${{ secrets.AMAZON_SES_TEST_SECRET_ACCESS_KEY }}
+          # MAILGUN_TEST_API_KEY: ${{ secrets.MAILGUN_TEST_API_KEY }}
+          # MAILGUN_TEST_DOMAIN: ${{ secrets.MAILGUN_TEST_DOMAIN }}
+          # MAILJET_TEST_API_KEY: ${{ secrets.MAILJET_TEST_API_KEY }}
+          # MAILJET_TEST_SECRET_KEY: ${{ secrets.MAILJET_TEST_SECRET_KEY }}
+          # POSTMARK_TEST_SERVER_TOKEN: ${{ secrets.POSTMARK_TEST_SERVER_TOKEN }}
+          # POSTMARK_TEST_TEMPLATE_ID: ${{ secrets.POSTMARK_TEST_TEMPLATE_ID }}
+          # SENDGRID_TEST_API_KEY: ${{ secrets.SENDGRID_TEST_API_KEY }}
+          # SENDGRID_TEST_PASSWORD: ${{ secrets.SENDGRID_TEST_PASSWORD }}
+          # SENDGRID_TEST_TEMPLATE_ID: ${{ secrets.SENDGRID_TEST_TEMPLATE_ID }}
+          # SENDGRID_TEST_USERNAME: ${{ secrets.SENDGRID_TEST_USERNAME }}
+          # SENDINBLUE_TEST_API_KEY: ${{ secrets.SENDINBLUE_TEST_API_KEY }}
+          # SPARKPOST_TEST_API_KEY: ${{ secrets.SPARKPOST_TEST_API_KEY }}
