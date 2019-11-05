@@ -76,18 +76,18 @@ jobs:
           sudo add-apt-repository ppa:pypy/ppa
           sudo apt-get -q update
           sudo apt-get -q install ${{ matrix.config.install_from_ppa }}
-          set +x
-          PYTHON_DIR=$(dirname "$(which ${{ matrix.config.install_from_ppa }})")
-          echo "::set-env name=pythonLocation::$PYTHON_DIR"
-          echo "::add-path::$PYTHON_DIR"
+#          set +x
+#          PYTHON_DIR=$(dirname "$(which ${{ matrix.config.install_from_ppa }})")
+#          echo "::set-env name=pythonLocation::$PYTHON_DIR"
+#          echo "::add-path::$PYTHON_DIR"
 
       - name: Run pip install tox
+        # Always run tox itself in python3 (even if we're testing other pythons)
         run: |
           set -x
-          python --version
-          python -m pip install --upgrade pip
-          pip --version
-          pip install tox
+          python3 --version
+          pip3 --version
+          pip3 install tox
           tox --version
 
       - run: tox -e ${{ matrix.config.tox }}
