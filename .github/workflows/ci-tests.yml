@@ -77,9 +77,8 @@ jobs:
           sudo apt-get -q update
           sudo apt-get -q install ${{ matrix.config.install_from_ppa }}
           set +x
-          PYTHON=$(which ${{ matrix.config.install_from_ppa }})
-          PYTHON_ACTUAL=$(stat --format='%N' "$PYTHON")
-          PYTHON_DIR=$(dirname "PYTHON_ACTUAL")
+          PYTHON=$(${{ matrix.config.install_from_ppa }} -c 'import sys; print(sys.executable)')
+          PYTHON_DIR=$(dirname "$PYTHON")
           echo "Found ${{ matrix.config.install_from_ppa }} in $PYTHON_DIR"
           echo "::set-env name=pythonLocation::$PYTHON_DIR"
           echo "::add-path::$PYTHON_DIR"
