@@ -27,7 +27,7 @@ jobs:
 
           # Django 1.11: Python 2.7, 3.4, 3.5, or 3.6
           - { tox: django111-py27-all, python: 2.7, live_integration: true }
-          # TODO: Python 3.4 not available in cache - { tox: django111-py34-all, python: 3.4 }
+          - { tox: django111-py34-all, python: 3.4, install_from_ppa: python3.4 }
           - { tox: django111-py35-all, python: 3.5 }
           - { tox: django111-py36-all, python: 3.6 }
           - { tox: django111-pypy-all, python: pypy2 }
@@ -50,7 +50,7 @@ jobs:
           - { tox: django30-py36-all, python: 3.6 }
           - { tox: django30-py37-all, python: 3.7 }
           - { tox: django30-py38-all, python: 3.8 }
-          - { tox: django30-pypy3-all, python: pypy3 }
+          - { tox: django30-pypy3-all, python: pypy3, install_from_ppa: pypy3 }
           # # Django development master (direct from GitHub source):
           # - { tox: djangoMaster-py37-all, python: 3.7, allow_failures: true }
           # # Install without optional extras (don't need to cover entire matrix)
@@ -63,10 +63,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v1
+
       - uses: actions/setup-python@v1
         with:
           python-version: ${{ matrix.config.python }}
-      - name: Install testing tools
+        if: !matrix.config.install_from_ppa
+      - name: Run apt-get install ${{ matrix.config.install_from_ppa }}
+        if: matrix.config.install_from_ppa
+        run: |
+          set -x
+          sudo add-apt-repository ppa:deadsnakes/ppa
+          sudo add-apt-repository ppa:pypy/ppa
+          sudo apt-get update
+          sudo apt-get install ${{ matrix.config.install_from_ppa }}
+
+      - name: Run pip install tox
         run: |
           set -x
           python --version
@@ -74,6 +85,7 @@ jobs:
           pip --version
           pip install tox
           tox --version
+
       - run: tox -e ${{ matrix.config.tox }}
         continue-on-error: ${{ matrix.config.allow_failures }}
         env:
