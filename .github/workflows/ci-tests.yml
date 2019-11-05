@@ -68,7 +68,7 @@ jobs:
         with:
           python-version: ${{ matrix.config.python }}
         if: ( matrix.config.install_from_ppa || '' ) == ''
-      - name: Run apt-get install ${{ matrix.config.install_from_ppa || '' }}
+      - name: Run apt-get install ${{ matrix.config.install_from_ppa || 'python' }}
         if: matrix.config.install_from_ppa
         run: |
           set -x
@@ -86,11 +86,13 @@ jobs:
         run: |
           set -x
           python3 --version
+          # python3 -m pip install --upgrade pip
           pip3 --version
           pip3 install tox
-          tox --version
+          python3 -m tox --version
 
-      - run: tox -e ${{ matrix.config.tox }}
+      - name: Run tox -e ${{ matrix.config.tox }}
+        run: python3 -m tox -e ${{ matrix.config.tox }}
         continue-on-error: ${{ matrix.config.allow_failures }}
         env:
           CONTINUOUS_INTEGRATION: true
