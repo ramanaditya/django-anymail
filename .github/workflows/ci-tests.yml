@@ -27,7 +27,7 @@ jobs:
 
           # Django 1.11: Python 2.7, 3.4, 3.5, or 3.6
           - { tox: django111-py27-all, python: 2.7, live_integration: true }
-          # Python 3.4 not cached - { tox: django111-py34-all, python: 3.4 }
+          # TODO: Python 3.4 not available in cache - { tox: django111-py34-all, python: 3.4 }
           - { tox: django111-py35-all, python: 3.5 }
           - { tox: django111-py36-all, python: 3.6 }
           - { tox: django111-pypy-all, python: pypy2 }
@@ -46,11 +46,11 @@ jobs:
           # - { tox: django22-py36-all, python: 3.6 }
           # - { tox: django22-py37-all, python: 3.7, live_integration: true }
           # - { tox: django22-pypy3-all, python: pypy3 }
-          # # Django 3.0: Python 3.6, 3.7, or 3.8
-          # - { tox: django30-py36-all, python: 3.6 }
-          # - { tox: django30-py37-all, python: 3.7 }
-          # - { tox: django30-py38-all, python: 3.8 }
-          # - { tox: django30-pypy3-all, python: pypy3 }
+          # Django 3.0: Python 3.6, 3.7, or 3.8
+          - { tox: django30-py36-all, python: 3.6 }
+          - { tox: django30-py37-all, python: 3.7 }
+          - { tox: django30-py38-all, python: 3.8 }
+          - { tox: django30-pypy3-all, python: pypy3 }
           # # Django development master (direct from GitHub source):
           # - { tox: djangoMaster-py37-all, python: 3.7, allow_failures: true }
           # # Install without optional extras (don't need to cover entire matrix)
@@ -66,8 +66,9 @@ jobs:
       - uses: actions/setup-python@v1
         with:
           python-version: ${{ matrix.config.python }}
-      - name: install testing tools
+      - name: Install testing tools
         run: |
+          set -x
           python --version
           python -m pip install --upgrade pip
           pip --version
@@ -78,19 +79,18 @@ jobs:
         env:
           CONTINUOUS_INTEGRATION: true
           RUN_LIVE_TESTS: ${{ matrix.config.live_integration }}
-          # TODO: secrets
-          # AMAZON_SES_TEST_ACCESS_KEY_ID: ${{ secrets.AMAZON_SES_TEST_ACCESS_KEY_ID || '' }}
-          # AMAZON_SES_TEST_REGION_NAME: ${{ secrets.AMAZON_SES_TEST_REGION_NAME }}
-          # AMAZON_SES_TEST_SECRET_ACCESS_KEY: ${{ secrets.AMAZON_SES_TEST_SECRET_ACCESS_KEY }}
-          # MAILGUN_TEST_API_KEY: ${{ secrets.MAILGUN_TEST_API_KEY }}
-          # MAILGUN_TEST_DOMAIN: ${{ secrets.MAILGUN_TEST_DOMAIN }}
-          # MAILJET_TEST_API_KEY: ${{ secrets.MAILJET_TEST_API_KEY }}
-          # MAILJET_TEST_SECRET_KEY: ${{ secrets.MAILJET_TEST_SECRET_KEY }}
-          # POSTMARK_TEST_SERVER_TOKEN: ${{ secrets.POSTMARK_TEST_SERVER_TOKEN }}
-          # POSTMARK_TEST_TEMPLATE_ID: ${{ secrets.POSTMARK_TEST_TEMPLATE_ID }}
-          # SENDGRID_TEST_API_KEY: ${{ secrets.SENDGRID_TEST_API_KEY }}
-          # SENDGRID_TEST_PASSWORD: ${{ secrets.SENDGRID_TEST_PASSWORD }}
-          # SENDGRID_TEST_TEMPLATE_ID: ${{ secrets.SENDGRID_TEST_TEMPLATE_ID }}
-          # SENDGRID_TEST_USERNAME: ${{ secrets.SENDGRID_TEST_USERNAME }}
-          # SENDINBLUE_TEST_API_KEY: ${{ secrets.SENDINBLUE_TEST_API_KEY }}
-          # SPARKPOST_TEST_API_KEY: ${{ secrets.SPARKPOST_TEST_API_KEY }}
+          AMAZON_SES_TEST_ACCESS_KEY_ID: ${{ secrets.AMAZON_SES_TEST_ACCESS_KEY_ID }}
+          AMAZON_SES_TEST_REGION_NAME: ${{ secrets.AMAZON_SES_TEST_REGION_NAME }}
+          AMAZON_SES_TEST_SECRET_ACCESS_KEY: ${{ secrets.AMAZON_SES_TEST_SECRET_ACCESS_KEY }}
+          MAILGUN_TEST_API_KEY: ${{ secrets.MAILGUN_TEST_API_KEY }}
+          MAILGUN_TEST_DOMAIN: ${{ secrets.MAILGUN_TEST_DOMAIN }}
+          MAILJET_TEST_API_KEY: ${{ secrets.MAILJET_TEST_API_KEY }}
+          MAILJET_TEST_SECRET_KEY: ${{ secrets.MAILJET_TEST_SECRET_KEY }}
+          POSTMARK_TEST_SERVER_TOKEN: ${{ secrets.POSTMARK_TEST_SERVER_TOKEN }}
+          POSTMARK_TEST_TEMPLATE_ID: ${{ secrets.POSTMARK_TEST_TEMPLATE_ID }}
+          SENDGRID_TEST_API_KEY: ${{ secrets.SENDGRID_TEST_API_KEY }}
+          SENDGRID_TEST_PASSWORD: ${{ secrets.SENDGRID_TEST_PASSWORD }}
+          SENDGRID_TEST_TEMPLATE_ID: ${{ secrets.SENDGRID_TEST_TEMPLATE_ID }}
+          SENDGRID_TEST_USERNAME: ${{ secrets.SENDGRID_TEST_USERNAME }}
+          SENDINBLUE_TEST_API_KEY: ${{ secrets.SENDINBLUE_TEST_API_KEY }}
+          SPARKPOST_TEST_API_KEY: ${{ secrets.SPARKPOST_TEST_API_KEY }}
