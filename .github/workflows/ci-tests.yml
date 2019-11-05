@@ -67,8 +67,8 @@ jobs:
       - uses: actions/setup-python@v1
         with:
           python-version: ${{ matrix.config.python }}
-        if: ${{ ! matrix.config.install_from_ppa }}
-      - name: Run apt-get install ${{ matrix.config.install_from_ppa }}
+        if: ( matrix.config.install_from_ppa || '' ) == ''
+      - name: Run apt-get install ${{ matrix.config.install_from_ppa || '' }}
         if: matrix.config.install_from_ppa
         run: |
           set -x
