@@ -74,8 +74,12 @@ jobs:
           set -x
           sudo add-apt-repository ppa:deadsnakes/ppa
           sudo add-apt-repository ppa:pypy/ppa
-          sudo apt-get update
-          sudo apt-get install ${{ matrix.config.install_from_ppa }}
+          sudo apt-get -q update
+          sudo apt-get -q install ${{ matrix.config.install_from_ppa }}
+          set +x
+          PYTHON_DIR=$(dirname "$(which ${{ matrix.config.install_from_ppa }})")
+          echo "::set-env name=pythonLocation::$PYTHON_DIR"
+          echo "::add-path::$PYTHON_DIR"
 
       - name: Run pip install tox
         run: |
