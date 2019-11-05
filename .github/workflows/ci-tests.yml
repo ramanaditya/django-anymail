@@ -1,4 +1,4 @@
-name: build
+name: tests
 
 on:
   push:
@@ -9,12 +9,13 @@ on:
 
 
 jobs:
-  build:
-    name: ${{ matrix.config.tox }} (Python ${{ matrix.config.python }})
+  tox-tests:
+    name: ${{ matrix.config.tox }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       matrix:
+        fail-fast: false
         config:
           - { tox: "lint,docs", python: 3.6 }
 
@@ -61,20 +62,17 @@ jobs:
           # - { tox: django22-py37-all-old_urllib3, python: 3.7 }
 
     steps:
-      - run: ls $RUNNER_TOOL_CACHE
-      - run: ls $RUNNER_TOOL_CACHE/[Pp]y*/*
       - uses: actions/checkout@v1
       - uses: actions/setup-python@v1
         with:
           python-version: ${{ matrix.config.python }}
-      - run: |
+      - name: install testing tools
+        run: |
           python --version
-          pip --version
           python -m pip install --upgrade pip
           pip --version
-      - run: |
           pip install tox
-          echo $?
+          tox --version
       - run: tox -e ${{ matrix.config.tox }}
         continue-on-error: ${{ matrix.config.allow_failures }}
         env:
