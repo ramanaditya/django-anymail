@@ -152,7 +152,7 @@ class MailgunBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
 
         attachments = event["message"]["attachments"]
         if len(attachments) == 3:
-            # The inline attachment shouldn't be in the event message.attachments array, 
+            # The inline attachment shouldn't be in the event message.attachments array,
             # but sometimes is included for the accepted event (see #172)
             inline_attachment = attachments.pop(0)
             self.assertEqual(inline_attachment["filename"], cid)
