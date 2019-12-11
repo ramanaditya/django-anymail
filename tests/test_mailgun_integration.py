@@ -151,7 +151,13 @@ class MailgunBackendIntegrationTests(SimpleTestCase, AnymailTestMixin):
         self.assertEqual(headers["subject"], "Anymail Mailgun all-options integration test")
 
         attachments = event["message"]["attachments"]
-        self.assertEqual(len(attachments), 2)  # because inline image shouldn't be an attachment
+        if len(attachments) == 3:
+            # The inline attachment shouldn't be in the event message.attachments array, 
+            # but sometimes is included for the accepted event (see #172)
+            inline_attachment = attachments.pop(0)
+            self.assertEqual(inline_attachment["filename"], cid)
+            self.assertEqual(inline_attachment["content-type"], "image/png")
+        self.assertEqual(len(attachments), 2)
         self.assertEqual(attachments[0]["filename"], "attachment1.txt")
         self.assertEqual(attachments[0]["content-type"], "text/plain")
         self.assertEqual(attachments[1]["filename"], "vedhæftet fil.csv")
