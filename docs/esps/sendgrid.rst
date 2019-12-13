@@ -217,6 +217,26 @@ Limitations and quirks
 
   (Tested March, 2016)
 
+**Wrong character set on text attachments**
+  Under some conditions, SendGrid incorrectly identifies text attachments (text/plain,
+  text/calendar, etc.) as using ISO-8859-1 encoding, and forces ``charset="iso-8859-1"``
+  into the attachments' MIME headers. This generally causes any non-ASCII characters in
+  the attachments to be replaced with incorrect or illegal characters in the recipient's
+  email client.
+
+  The behavior is unpredictable, and may vary by SendGrid account or change over time.
+  There is no reliable, general workaround that Anymail could implement. You may be able
+  to counteract the issue by enabling open and/or click tracking in your SendGrid
+  account. The only way to completely avoid the problem is switching to a non-text
+  attachment type (e.g., application/pdf) or limiting your text attachments to use only
+  ASCII characters. See `issue 150 <https://github.com/anymail/django-anymail/issues/150>`_
+  for more information and other possible workarounds.
+
+  If this impacts your usage, it's helpful to report it to SendGrid support, so they can
+  quantify customers affected and prioritize a fix.
+
+  (Noted June, 2019 and December, 2019)
+
 **No envelope sender overrides**
   SendGrid does not support overriding :attr:`~anymail.message.AnymailMessage.envelope_sender`
   on individual messages.
