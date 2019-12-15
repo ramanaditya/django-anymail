@@ -44,6 +44,14 @@ often help you pinpoint the problem...
   other than Anymail. And you can look through the :setting:`EMAIL_FILE_PATH`
   file contents afterward to see if you're generating the email you want.
 
+**Examine the raw API communication**
+
+  Sometimes you just want to see exactly what Anymail is telling your ESP to do
+  and how your ESP is responding. In a dev environment, enable the Anymail setting
+  :setting:`DEBUG_API_REQUESTS <ANYMAIL_DEBUG_API_REQUESTS>`
+  to show the raw HTTP requests and responses from (most) ESP APIs. (This is not
+  recommended in production, as it can leak sensitive data into your logs.)
+
 
 .. _contact:
 .. _support:

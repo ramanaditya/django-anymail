@@ -299,3 +299,25 @@ For Requests-based Anymail backends, the timeout value used for all API calls to
 The default is 30 seconds. You can set to a single float, a 2-tuple of floats for
 separate connection and read timeouts, or `None` to disable timeouts (not recommended).
 See :ref:`requests:timeouts` in the Requests docs for more information.
+
+
+.. setting:: ANYMAIL_DEBUG_API_REQUESTS
+
+.. rubric:: DEBUG_API_REQUESTS
+
+.. versionadded:: 4.3
+
+When set to `True`, outputs the raw API communication with the ESP, to assist in
+debugging. Each HTTP request and ESP response is dumped to :data:`sys.stdout` once
+the response is received.
+
+.. caution::
+
+    Do not enable :setting:`!DEBUG_API_REQUESTS` in production deployments. The debug
+    output will include your API keys, email addresses, and other sensitive data
+    that you generally don't want to capture in server logs or reveal on the console.
+
+:setting:`!DEBUG_API_REQUESTS` only applies to sending email through Requests-based
+Anymail backends. For other backends, there may be similar debugging facilities
+available in the ESP's API wrapper package (e.g., ``boto3.set_stream_logger`` for
+Amazon SES).

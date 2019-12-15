@@ -2,7 +2,7 @@ from django.core import checks
 from django.test import SimpleTestCase
 from django.test.utils import override_settings
 
-from anymail.checks import check_deprecated_settings
+from anymail.checks import check_deprecated_settings, check_insecure_settings
 
 from .utils import AnymailTestMixin
 
@@ -25,3 +25,16 @@ class DeprecatedSettingsTests(SimpleTestCase, AnymailTestMixin):
             hint="You must update your settings.py.",
             id="anymail.E001",
         )])
+
+
+class InsecureSettingsTests(SimpleTestCase, AnymailTestMixin):
+    @override_settings(ANYMAIL={"DEBUG_API_REQUESTS": True})
+    def test_debug_api_requests_deployed(self):
+        errors = check_insecure_settings(None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "anymail.W002")
+
+    @override_settings(ANYMAIL={"DEBUG_API_REQUESTS": True}, DEBUG=True)
+    def test_debug_api_requests_debug(self):
+        errors = check_insecure_settings(None)
+        self.assertEqual(len(errors), 0)  # no warning in DEBUG (non-production) config
