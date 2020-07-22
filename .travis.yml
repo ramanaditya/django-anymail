@@ -35,22 +35,27 @@ matrix:
     # Django 2.0: Python 3.5+
     - { env: TOXENV=django20-py35-all, python: 3.5 }
     - { env: TOXENV=django20-py36-all, python: 3.6 }
-    - { env: TOXENV=django20-pypy3-all, python: pypy3.5 }
+    - { env: TOXENV=django20-pypy3-all, python: pypy3 }
     # Django 2.1: Python 3.5, 3.6, or 3.7
     - { env: TOXENV=django21-py35-all, python: 3.5 }
     - { env: TOXENV=django21-py36-all, python: 3.6 }
     - { env: TOXENV=django21-py37-all, python: 3.7 }
-    - { env: TOXENV=django21-pypy3-all, python: pypy3.5 }
+    - { env: TOXENV=django21-pypy3-all, python: pypy3 }
     # Django 2.2: Python 3.5, 3.6, or 3.7
     - { env: TOXENV=django22-py35-all, python: 3.5 }
     - { env: TOXENV=django22-py36-all, python: 3.6 }
     - { env: TOXENV=django22-py37-all RUN_LIVE_TESTS=true, python: 3.7 }
-    - { env: TOXENV=django22-pypy3-all, python: pypy3.5 }
+    - { env: TOXENV=django22-pypy3-all, python: pypy3 }
     # Django 3.0: Python 3.6, 3.7, or 3.8
     - { env: TOXENV=django30-py36-all, python: 3.6 }
     - { env: TOXENV=django30-py37-all, python: 3.7 }
-    - { env: TOXENV=django30-py38-all, python: 3.8-dev }
-    # - { env: TOXENV=django30-pypy3-all, python: pypy3.6 }  # pypy3.6 not yet in Travis-CI
+    - { env: TOXENV=django30-py38-all, python: 3.8 }
+    - { env: TOXENV=django30-pypy3-all, python: pypy3 }
+    # Django 3.1: Python 3.6, 3.7, or 3.8
+    - { env: TOXENV=django31-py36-all, python: 3.6 }
+    - { env: TOXENV=django31-py37-all, python: 3.7 }
+    - { env: TOXENV=django31-py38-all, python: 3.8 }
+    - { env: TOXENV=django31-pypy3-all, python: pypy3 }
     # Django development master (direct from GitHub source):
     - { env: TOXENV=djangoMaster-py37-all, python: 3.7 }
     # Install without optional extras (don't need to cover entire matrix)
