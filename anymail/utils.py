@@ -8,22 +8,23 @@ from time import mktime
 
 import six
 from django.conf import settings
-from django.core.mail.message import sanitize_address, DEFAULT_ATTACHMENT_MIME_TYPE
+from django.core.mail.message import DEFAULT_ATTACHMENT_MIME_TYPE, sanitize_address
+from django.utils.functional import Promise
+from django.utils.timezone import get_fixed_timezone, utc
+from requests.structures import CaseInsensitiveDict
+from six.moves.urllib.parse import urlsplit, urlunsplit
+
+from .exceptions import AnymailConfigurationError, AnymailInvalidAddress
+
 if six.PY2:
     from django.utils.encoding import force_text as force_str
 else:
     from django.utils.encoding import force_str
-from django.utils.functional import Promise
-from django.utils.timezone import utc, get_fixed_timezone
-from requests.structures import CaseInsensitiveDict
-from six.moves.urllib.parse import urlsplit, urlunsplit
 
 try:
     from collections.abc import Mapping, MutableMapping  # Python 3.3+
 except ImportError:
     from collections import Mapping, MutableMapping
-
-from .exceptions import AnymailConfigurationError, AnymailInvalidAddress
 
 
 BASIC_NUMERIC_TYPES = six.integer_types + (float,)  # int, float, and (on Python 2) long
