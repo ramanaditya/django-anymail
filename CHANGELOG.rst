@@ -25,6 +25,19 @@ Release history
 ^^^^^^^^^^^^^^^
     ..  This extra heading level keeps the ToC from becoming unmanageably long
 
+vNext
+-----
+
+*Unreleased changes in master*
+
+Fixes
+~~~~~
+
+* **Amazon SES:** Fix bcc, which wasn't working at all on non-template sends.
+  (Thanks to `@mwheels`_ for reporting the issue.)
+
+
+
 v7.1
 -----
 
@@ -1064,6 +1077,7 @@ Features
 .. _@Lekensteyn: https://github.com/Lekensteyn
 .. _@lewistaylor: https://github.com/lewistaylor
 .. _@mbk-ok: https://github.com/mbk-ok
+.. _@mwheels: https://github.com/mwheels
 .. _@nuschk: https://github.com/nuschk
 .. _@RignonNoel: https://github.com/RignonNoel
 .. _@sebashwa: https://github.com/sebashwa

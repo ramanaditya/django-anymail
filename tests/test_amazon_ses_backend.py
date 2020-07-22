@@ -127,12 +127,28 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         self.assertIn(b"\nTo: to@example.com\n", raw_mime)
         self.assertIn(b"\nSubject: Subject here\n", raw_mime)
         self.assertIn(b"\n\nHere is the message", raw_mime)
+        # Destinations must include all recipients:
+        self.assertEqual(params['Destinations'], ['to@example.com'])
 
     # Since the SES backend generates the MIME message using Django's
     # EmailMessage.message().to_string(), there's not really a need
     # to exhaustively test all the various standard email features.
     # (EmailMessage.message() is well tested in the Django codebase.)
     # Instead, just spot-check a few things...
+
+    def test_destinations(self):
+        self.message.to = ['to1@example.com', '"Recipient, second" <to2@example.com>']
+        self.message.cc = ['cc1@example.com', 'Also cc <cc2@example.com>']
+        self.message.bcc = ['bcc1@example.com', 'BCC 2 <bcc2@example.com>']
+        self.message.send()
+        params = self.get_send_params()
+        self.assertEqual(params['Destinations'], [
+            'to1@example.com', '"Recipient, second" <to2@example.com>',
+            'cc1@example.com', 'Also cc <cc2@example.com>',
+            'bcc1@example.com', 'BCC 2 <bcc2@example.com>',
+        ])
+        # Bcc's shouldn't appear in the message itself:
+        self.assertNotIn(b'bcc', params['RawMessage']['Data'])
 
     def test_non_ascii_headers(self):
         self.message.subject = "Thử tin nhắn"  # utf-8 in subject header
@@ -148,6 +164,11 @@ class AmazonSESBackendStandardEmailTests(AmazonSESBackendMockAPITestCase):
         # Non-ASCII address domains must use Punycode:
         self.assertIn(b"\nCc: cc@xn--th-e0a.example.com\n", raw_mime)
         # SES doesn't support non-ASCII in the username@ part (RFC 6531 "SMTPUTF8" extension)
+
+        # Destinations must include all recipients:
+        self.assertEqual(params['Destinations'], [
+            '=?utf-8?b?TmfGsOG7nWkgbmjhuq1u?= <to@example.com>',
+            'cc@xn--th-e0a.example.com'])
 
     def test_attachments(self):
         text_content = "• Item one\n• Item two\n• Item three"  # those are \u2022 bullets ("\N{BULLET}")
@@ -336,7 +357,7 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
         self.message.send()
         params = self.get_send_params()
         raw_mime = params['RawMessage']['Data']
-        self.assertEqual(params['Destinations'], ["envelope-to@example.com"])
+        self.assertEqual(params['Destinations'], ["Envelope <envelope-to@example.com>"])
         self.assertIn(b"\nTo: Spoofed <spoofed-to@elsewhere.example.org>\n", raw_mime)
         self.assertNotIn(b"envelope-to@example.com", raw_mime)
 
@@ -533,7 +554,6 @@ class AmazonSESBackendAnymailFeatureTests(AmazonSESBackendMockAPITestCase):
         self.assertNotIn('ConfigurationSetName', params)
         self.assertNotIn('DefaultTags', params)
         self.assertNotIn('DefaultTemplateData', params)
-        self.assertNotIn('Destinations', params)
         self.assertNotIn('FromArn', params)
         self.assertNotIn('Message', params)
         self.assertNotIn('ReplyToAddresses', params)

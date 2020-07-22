@@ -150,9 +150,11 @@ class AmazonSESSendRawEmailPayload(AmazonSESBasePayload):
                 MIMEText.set_payload(part, content, charset=qp_charset)
 
     def call_send_api(self, ses_client):
+        # Set Destinations to make sure we pick up all recipients (including bcc).
+        # Any non-ASCII characters in recipient domains must be encoded with Punycode.
+        # (Amazon SES doesn't support non-ASCII recipient usernames.)
+        self.params["Destinations"] = [email.address for email in self.all_recipients]
         self.params["RawMessage"] = {
-            # Note: "Destinations" is determined from message headers if not provided
-            # "Destinations": [email.addr_spec for email in self.all_recipients],
             "Data": self.mime_message.as_bytes()
         }
         return ses_client.send_raw_email(**self.params)
@@ -225,8 +227,14 @@ class AmazonSESSendRawEmailPayload(AmazonSESBasePayload):
     def set_spoofed_to_header(self, header_to):
         # django.core.mail.EmailMessage.message() has already set
         #   self.mime_message["To"] = header_to
-        # and performed any necessary header sanitization
-        self.params["Destinations"] = [email.addr_spec for email in self.all_recipients]
+        # and performed any necessary header sanitization.
+        #
+        # The actual "to" is already in self.all_recipients,
+        # which is used as the SendRawEmail Destinations later.
+        #
+        # So, nothing to do here, except prevent the default
+        # "unsupported feature" error.
+        pass
 
     def set_metadata(self, metadata):
         # Amazon SES has two mechanisms for adding custom data to a message:
